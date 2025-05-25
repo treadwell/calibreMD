@@ -1,0 +1,375 @@
+---
+title: "CalibreMD"
+author: "Ken Brooks"
+date: "5/11/2025"
+output: html_document
+---
+
+# Plan
+
+1. Build local sqlite table for classification
+  - Enter library location
+  - Extract metadata as categorical features
+  - Extract text as text features
+2. Feature engineering
+  - Select features - Chi2 filtering
+    - categorical features
+    - set of words (to start with) for content features
+3. Modeling 
+  - Train and evaluate classifier
+  - Set baseline
+
+# Setup
+
+## Options
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  fig.pos = 'h',
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  autodep = TRUE,
+  cache = TRUE,
+  fig.width = 6,  # was 6
+  fig.asp = 0.618,  # was 0.618
+  out.width = "70%",
+  fig.align = "center",
+  fig.show = "hold")
+
+remove(list = ls()) # clear environment
+```
+
+## Locations
+
+```{r locations}
+root <- rprojroot::find_rstudio_root_file()
+# this refers to a directory that is not in the repo
+dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+
+```
+
+## Packages
+
+```{r packages-load}
+packages <- c('tidyverse',
+              'lubridate', 
+              'ggplot2', 
+              'readxl',
+              'tidytext',
+              'dplyr',
+              'jsonlite',
+              'purrr',
+              'glmnet',
+              'RSQLite',
+              'xgboost'
+              )
+packagesColon <- c('DT')
+purrr::walk(packages, library, character.only=TRUE)
+```
+
+## Files
+
+```{r list-files-func}
+if (!dir.exists(dataDir)) {
+  stop(paste("Directory does not exist:", dataDir))
+}
+
+ft_db <- paste0(dataDir, '/full-text-search.db')
+md_db <- paste0(dataDir, '/metadata.db')
+
+ft_db
+```
+# Get data
+
+## Pull from db
+
+```{r}
+# 1. Load the packages you need
+library(DBI)      # database connectivity (DBI interface)
+library(RSQLite)  # backend driver for SQLite
+
+# 2. Open a connection --------------------------------------------------------
+con <- dbConnect(RSQLite::SQLite(), dbname = md_db)
+
+sql <- "
+	select id, 'title' as feature, title as value from books
+	union all
+	select book as id, 'comment' as feature, text as value from comments
+	union all
+	select al.book as id, 'author' as feature, a.name as value from books_authors_link al, authors a where al.author = a.id
+	union all
+	select pl.book as id, 'publisher' as feature, p.name as value from books_publishers_link pl, publishers p where pl.publisher = p.id
+	union all
+	select tl.book as id, 'tag' as feature, t.name as value from books_tags_link tl, tags t where tl.tag = t.id
+	union all
+	select sl.book as id, 'series' as feature, s.name as value from books_series_link sl, series s where sl.series = s.id
+	union all
+	select book as id, 'rating' as feature, rating as value from books_ratings_link
+	order by id;
+"
+
+# build the tokenizer and replace title and comments with additional EAV rows where feature = token and value = token
+
+result <- dbGetQuery(con, sql)   # pulls rows straight into an R data-frame
+
+text_feats <- c("title", "comment")   # features to tokenize
+
+# Replace with your actual column names
+text_values <- result %>%
+  filter(feature %in% text_feats) %>% 
+  select(value) %>%
+  unlist(use.names = FALSE) %>%                # flatten to character vector
+  as.character()
+
+##  training documents ----------------------------------------------------
+train <- tibble(text = text_values)
+
+##  learn: build the unigram vocabulary ----------------------------------
+vocab <- train %>%
+  unnest_tokens(word, text, token = "words") %>%  # split to lowercase words
+  distinct(word) %>%
+  dplyr::pull(word)   # ← this extracts the column as a character vector
+
+##  apply: function to tokenize new text with that vocab -----------------
+tokenize <- function(txt) {
+  tibble(text = txt) %>%
+    unnest_tokens(word, text, token = "words") %>%   # split/clean
+    filter(word %in% vocab) %>%                      # keep known words
+    distinct(word) %>%                               # “set” semantics
+    pull(word)
+}
+
+## 1. Tokenise and explode only the text features -------------------------
+token_rows <- result %>%                           # original EAV table
+  filter(feature %in% text_feats) %>%              # keep titles/comments
+  mutate(tokens = map(value, tokenize)) %>%        # list-column of tokens
+  select(id, feature, tokens) %>%                  
+  unnest(tokens) %>%                               # one row per token
+  rename(value = tokens)                           # align col-name
+
+## 2. Recombine with untouched rows ---------------------------------------
+eav <- result %>% 
+  filter(!feature %in% text_feats) %>%             # keep other features
+  bind_rows(token_rows) %>%                        # add the token rows
+  mutate(
+    id      = as.numeric(id),                      # enforce numeric
+    feature = as.character(feature),               # ensure character
+    value   = as.character(value)
+  )
+
+glimpse(eav)
+
+#TODO: convert to factors?
+
+# 6. Clean up -----------------------------------------------------------------
+dbDisconnect(con)
+```
+## Evaluate results
+```{r}
+## 1.  Tag counts  ----------------------------------------------------------
+tag_counts <- eav %>% 
+  filter(feature == "tag") %>%        # keep only tag rows
+  distinct(id, value) %>%             # one row per distinct tag
+  count(id, name = "n_tags")          # → one row per book
+
+## 2.  Full titles (pre-tokenized)  -----------------------------------------
+titles <- result %>%                  # result already holds complete titles
+  filter(feature == "title") %>% 
+  distinct(id, .keep_all = TRUE) %>%  # just in case there are duplicates
+  transmute(id, title = value)
+
+## 3.  Merge & tidy  --------------------------------------------------------
+book_summary_df <- titles %>% 
+  full_join(tag_counts, by = "id") %>% # bring in tag counts
+  mutate(n_tags = coalesce(n_tags, 0L)) %>%  # books with no tags → 0
+  arrange(desc(n_tags))                    # optional: sort by tag count
+
+head(book_summary_df)
+
+# Tag summary: get tag name, number of books that it's in
+
+tag_summary_df <- eav %>% 
+  filter(feature == "tag") %>%            # keep only tag rows
+  distinct(id, value) %>%                 # one row per (book, tag) pair
+  count(value, name = "book_count") %>%   # books per tag
+  arrange(desc(book_count))               # optional: sort by popularity
+
+head(tag_summary_df)
+
+```
+
+
+## One Hot prep
+```{r}
+library(Matrix)
+
+X <- Matrix::Matrix(X_aligned, sparse = TRUE)
+Y <- Y_aligned  # should be a matrix/data.frame: rows = books, cols = tags
+
+tag_mat <- eav %>% 
+  filter(feature == "tag") %>%                 # keep only tag rows
+  mutate(present = 1L) %>%                     # 1 = tag present
+  select(id, value, present) %>% 
+  distinct() %>%                               # avoid dup rows
+  pivot_wider(
+    names_from  = value,                       # each tag → column
+    values_from = present,
+    values_fill = 0L                           # 0 = tag absent
+  ) %>% 
+  arrange(id)                                  # nice row order
+
+tag_matrix <- tag_mat %>% 
+  select(-id) %>%                 # drop id column for the conversion
+  as.matrix()
+
+feat_val_mat <- eav %>% 
+  filter(feature != "tag") %>%                 # exclude tag rows
+  mutate(
+    feat_val = paste(feature, value, sep = ": "),
+    present  = 1L
+  ) %>% 
+  select(id, feat_val, present) %>% 
+  distinct() %>% 
+  pivot_wider(
+    names_from  = feat_val,                    # each feature-value → column
+    values_from = present,
+    values_fill = 0L
+  ) %>% 
+  arrange(id)
+
+
+
+rownames(tag_matrix) <- tag_mat$id   # add book-id row names
+
+feat_val_matrix <- feat_val_mat %>% 
+  select(-id) %>% 
+  as.matrix()
+
+rownames(feat_val_matrix) <- feat_val_mat$id
+
+```
+#  TODO: we have a data set that should work with multi-class classification.  We're essentially doing an encoder to select the set of labels that represent the sample. 
+
+## check for mismatched rows
+
+```{r}
+
+# Prepare input/output
+X <- feat_val_matrix
+Y <- tag_matrix
+
+setdiff(rownames(X), rownames(Y))  # books in X, not in Y
+setdiff(rownames(Y), rownames(X))  # books in Y, not in X
+
+# Find common IDs
+common_ids <- intersect(rownames(X), rownames(Y))
+
+# Subset and reorder both matrices
+X_aligned <- X[common_ids, , drop = FALSE]
+Y_aligned <- Y[common_ids, , drop = FALSE]
+
+```
+
+
+```{r}
+library(xgboost)
+library(Matrix)
+
+X <- Matrix::Matrix(X_aligned, sparse = TRUE)
+Y <- Y_aligned  # should be a matrix/data.frame: rows = books, cols = tags
+
+models <- list()
+
+for (tag in colnames(Y)) {
+  y <- Y[, tag]                  # binary vector (0/1)
+  dtrain <- xgb.DMatrix(data = X, label = y)
+  models[[tag]] <- xgboost(
+    data = dtrain,
+    objective = "binary:logistic",
+    eval_metric = "logloss",
+    nrounds = 50,
+    verbose = 0
+  )
+}
+# Save all models in one file
+saveRDS(models, "models_xgb_list.rds")
+# Later, reload:
+# models <- readRDS("models_xgb_list.rds")
+```
+
+
+## predict on training data
+```{r}
+pred_probs <- sapply(models, function(model) {
+  predict(model, newdata = X)
+})
+
+# Save as RDS (recommended)
+saveRDS(pred_probs, "pred_probs.rds")
+
+colnames(pred_probs) <- colnames(Y)
+rownames(pred_probs) <- rownames(X)
+
+pred_binary <- ifelse(pred_probs > 0.5, 1L, 0L)
+```
+## predict on all data
+
+```{r}
+# 'X' used for training; 'feat_val_matrix' is for new/unlabeled books
+
+# Align columns (ensures same set/order)
+missing_cols <- setdiff(colnames(feat_val_matrix), colnames(X))
+for (col in missing_cols) {
+  feat_val_matrix[, col] <- 0
+}
+# Order columns to match training
+feat_val_matrix <- feat_val_matrix[, colnames(X), drop = FALSE]
+
+X_new <- Matrix::Matrix(feat_val_matrix, sparse = TRUE)
+
+# Predict for all tags using your trained models
+pred_probs_new <- map_dfc(models, ~predict(.x, newdata = X_new))
+
+# Add book_id as a column if you want to track predictions
+pred_probs_new <- pred_probs_new %>%
+  mutate(book_id = rownames(X_new)) %>%
+  relocate(book_id)
+
+# Save as RDS (recommended)
+saveRDS(pred_probs_new, "pred_probs_new.rds")
+```
+
+
+## predict for a given book
+
+```{r}
+
+get_predicted_labels <- function(pred_probs, book_id, threshold = 0.5) {
+  my_row <- pred_probs %>% filter(as.character(book_id) == as.character(!!book_id))
+  if (nrow(my_row) == 0) return(character(0))
+  tag_cols <- setdiff(colnames(my_row), "book_id")
+  tag_cols[as.numeric(my_row[1, tag_cols]) > threshold]
+}
+
+get_top_n_labels <- function(pred_probs, book_id, n = 2) {
+  # Find the row for this book
+  my_row <- pred_probs %>% filter(as.character(book_id) == as.character(!!book_id))
+  if (nrow(my_row) == 0) return(character(0))
+  tag_cols <- setdiff(colnames(my_row), "book_id")
+  tag_scores <- as.numeric(my_row[1, tag_cols])
+  names(tag_scores) <- tag_cols
+  # Order by score, descending, and return top n
+  top_tags <- names(sort(tag_scores, decreasing = TRUE))[1:n]
+  return(top_tags)
+}
+
+threshold_labels <- get_predicted_labels(pred_probs_new, book_id = 900, threshold = 0.5)
+print(threshold_labels)
+
+print(get_top_n_labels(pred_probs_new, book_id = 900, n = 5))
+
+```
+
+

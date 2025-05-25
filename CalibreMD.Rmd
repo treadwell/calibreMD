@@ -1,0 +1,448 @@
+---
+title: "CalibreMD"
+author: "Ken Brooks"
+date: "5/11/2025"
+output: html_document
+---
+
+# Plan
+
+1. Build local sqlite table for classification
+  - Enter library location
+  - Extract metadata as categorical features
+  - Extract text as text features
+2. Feature engineering
+  - Select features - Chi2 filtering
+    - categorical features
+    - set of words (to start with) for content features
+3. Modeling 
+  - Train and evaluate classifier
+  - Set baseline
+
+# Setup
+
+## Options
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  fig.pos = 'h',
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  autodep = TRUE,
+  cache = TRUE,
+  fig.width = 6,  # was 6
+  fig.asp = 0.618,  # was 0.618
+  out.width = "70%",
+  fig.align = "center",
+  fig.show = "hold")
+
+remove(list = ls()) # clear environment
+```
+
+## Locations
+
+```{r locations}
+root <- rprojroot::find_rstudio_root_file()
+# this refers to a directory that is not in the repo
+dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+
+```
+
+## Packages
+
+```{r packages-load}
+packages <- c('tidyverse',
+              'lubridate', 
+              'ggplot2', 
+              'readxl',
+              'tidytext',
+              'dplyr',
+              'jsonlite',
+              'purrr',
+              'glmnet',
+              'RSQLite',
+              'xgboost'
+              )
+packagesColon <- c('DT')
+purrr::walk(packages, library, character.only=TRUE)
+```
+
+## Files
+
+```{r list-files-func}
+if (!dir.exists(dataDir)) {
+  stop(paste("Directory does not exist:", dataDir))
+}
+
+ft_db <- paste0(dataDir, '/full-text-search.db')
+md_db <- paste0(dataDir, '/metadata.db')
+
+ft_db
+```
+# Get data
+
+## Pull from db
+
+```{r}
+# 1. Load the packages you need
+library(DBI)      # database connectivity (DBI interface)
+library(RSQLite)  # backend driver for SQLite
+
+# 2. Open a connection --------------------------------------------------------
+con <- dbConnect(RSQLite::SQLite(), dbname = md_db)
+
+sql <- "
+select b.id, 
+	coalesce(b.title, '') as title,
+	coalesce(c.text, '') as comment,
+	coalesce(bl.author, '[]') as author, 
+	coalesce(pl.publisher, '[]') as publisher, 
+	coalesce(tl.tag, '[]') as tag, 
+	coalesce(rl.rating, '[]') as rating,
+	coalesce(s.name, '') as series
+from 
+	books b
+	left join (select book, json_group_array(author) as author from books_authors_link group by book) bl on bl.book =  b.id
+	left join (select book, json_group_array(publisher) as publisher from books_publishers_link group by book) pl on pl.book = b.id
+	left join (select l.book, json_group_array(t.name) as tag from books_tags_link l, tags t where l.tag = t.id group by l.book) tl on tl.book = b.id
+	left join comments c on c.book = b.id
+	left join (select book, json_group_array(rating) as rating from books_ratings_link group by book) rl on rl.book = b.id
+	left join books_series_link sl on sl.book = b.id
+	left join series s on sl.series = s.id;
+"
+
+result <- dbGetQuery(con, sql)   # pulls rows straight into an R data-frame
+
+head(result)
+
+summary(result)
+
+head(result)
+
+result1 <- result %>% 
+  mutate()
+
+# 6. Clean up -----------------------------------------------------------------
+dbDisconnect(con)
+```
+## Look at db results
+```{r}
+book_summary_df <- result %>%
+  mutate(
+    tag_list = map(tag, ~fromJSON(.x)),              # parse JSON strings to lists
+    num_tags = lengths(tag_list),                    # get length of each list
+    num_features = rowSums(!is.na(select(., comment, author, publisher, rating, series)))
+  ) %>%
+  select(id, title, num_tags, num_features)
+
+label_summary_df <- result %>%
+  mutate(
+    tag_list = map(tag, ~{
+      parsed <- tryCatch(fromJSON(.x), error = function(e) NULL)
+      if (is.null(parsed)) character(0) else as.character(parsed)
+    })
+  ) %>%
+  unnest(tag_list) %>%
+  count(tag_list, name = "book_count") %>%
+  rename(label = tag_list) %>%
+  arrange(desc(book_count))
+
+
+```
+
+## Extract metadata ngrams
+
+```{r}
+# Replace with your actual column names
+text_values <- result %>%
+  select(title, comment, series) %>%  # <-- your text columns
+  unlist(use.names = FALSE) %>%                # flatten to character vector
+  as.character()
+
+
+## 1️⃣  training documents ----------------------------------------------------
+train <- tibble(text = text_values)
+
+## 2️⃣  learn: build the unigram vocabulary ----------------------------------
+vocab <- train %>%
+  unnest_tokens(word, text, token = "words") %>%  # split to lowercase words
+  distinct(word) %>%
+  dplyr::pull(word)   # ← this extracts the column as a character vector
+
+# print(vocab)
+#>  [1] "the"     "quick"   "brown"   "fox"     "jumped"  "over"
+#>  [7] "lazy"    "dog"     "a"       "outpaces" "dogs"   "don"    
+#> [13] "t"       "jump"    "foxes"
+
+## 3️⃣  apply: function to tokenize new text with that vocab -----------------
+tokenize_with_vocab <- function(txt) {
+  tibble(text = txt) %>%
+    unnest_tokens(word, text, token = "words") %>%   # split/clean
+    filter(word %in% vocab) %>%                      # keep known words
+    distinct(word) %>%                               # “set” semantics
+    pull(word)
+}
+
+result_cats <- result %>%
+  mutate(
+    author    = map(map(author, fromJSON), c),
+    publisher = map(map(publisher, fromJSON), c),
+    tag       = map(tag, fromJSON),
+    rating    = map(map(rating, fromJSON), c),
+    content = map(paste(title, series, comment), tokenize_with_vocab)
+    )
+
+```
+## One Hot prep
+```{r}
+# STEP 4: One-hot encode each feature type
+unnest_feature <- function(df, col, prefix) {
+  df %>%
+    select(id, {{col}}) %>%
+    # Ensure each entry is a character vector
+    mutate({{col}} := map({{col}}, ~ as.character(unlist(.x)))) %>%
+    unnest({{col}}) %>%
+    mutate(feature = paste0(prefix, {{col}})) %>%
+    select(id, feature)
+}
+
+all_features <- bind_rows(
+  unnest_feature(result_cats, content,     "content_"),
+  unnest_feature(result_cats, author,    "author_"),
+  unnest_feature(result_cats, rating,    "rating_"),
+  unnest_feature(result_cats, publisher, "publisher_")
+)
+
+# STEP 5: Pivot features to wide one-hot format
+ohe_features <- all_features %>%
+  mutate(value = 1) %>%
+  pivot_wider(names_from = feature, values_from = value, values_fill = 0)
+
+# STEP 6: Unnest tags to get one label per row
+labels_long <- result_cats %>%
+  select(id, tag) %>%
+  mutate(tag := map(tag, ~ as.character(unlist(.x)))) %>%
+  unnest(tag) %>%
+  rename(label = tag) %>% 
+  mutate(label = factor(label))# label column
+
+# STEP 7: Join labels with one-hot features
+final_df <- labels_long %>%
+  left_join(ohe_features, by = "id")
+
+# result
+print(final_df)
+
+```
+## Cleanup
+
+* probably get rid of examples w/o sufficient observations
+
+# Select label to test
+```{r}
+label_df <- final_df %>%
+  count(label, name = "n") %>%
+  mutate(length = nchar(as.character(label))) %>% 
+  arrange(desc(n)) 
+
+label_test <- label_df %>% 
+  dplyr::slice(1) %>%
+  pull(label) %>%
+  as.character()
+
+label_test
+
+```
+
+
+# glmnet modeling
+
+## prep data
+```{r}
+
+# Filter to samples with label 1
+label_test_df <- final_df %>%
+  filter(label == label_test)
+
+label_test_ids <- label_test_df$id %>% 
+  unique()
+
+# Count of label 1 samples
+n_label_test <- nrow(label_test_df)
+
+# Filter to samples without label 1 and randomly sample n_label1 rows
+not_label_test_df <- final_df %>%
+  filter(label != label_test) %>%
+  filter(!(label %in% label_test_ids)) %>% 
+  sample_n(n_label_test)
+
+# Combine both
+balanced_df <- bind_rows(label_test_df, not_label_test_df) %>% 
+  mutate(label_bin = if_else(label == label_test, 1, 0))  # 1 for label 1, 0 for all others
+
+```
+
+## prep training matrices
+
+```{r}
+
+# Remove sample_id (col 1) before modeling
+
+x <- balanced_df %>%
+  select(-label) %>%      # drop label column
+  select(-id) %>%         # drop id column for prediction
+  select(-label_bin) %>% 
+  as.matrix()
+#x <- as.matrix(balanced_df[, -(1:3)])  # exclude sample_id, label, and label_bin
+y <- balanced_df$label_bin
+
+```
+## Train model
+
+```{r}
+library(glmnet)
+set.seed(123)  # for reproducibility
+
+model <- cv.glmnet(x, y, family = "binomial", type.measure = "class")
+
+```
+## Evaluate model
+
+```{r}
+# Predict class labels on training data
+pred_class <- predict(model, newx = x, s = "lambda.min", type = "class") %>%
+  as.numeric()  # Converts factor "1"/"2" to numeric 0/1
+
+# True labels
+true <- y  # y should already be 0/1
+
+# Confusion matrix values
+TP <- sum(pred_class == 1 & true == 1)
+TN <- sum(pred_class == 0 & true == 0)
+FP <- sum(pred_class == 1 & true == 0)
+FN <- sum(pred_class == 0 & true == 1)
+
+# Metrics
+accuracy  <- (TP + TN) / (TP + TN + FP + FN)
+precision <- TP / (TP + FP)
+recall    <- TP / (TP + FN)
+f1_score  <- 2 * precision * recall / (precision + recall)
+
+# Print
+cat(sprintf("Accuracy: %.3f\n", accuracy))
+cat(sprintf("Precision: %.3f\n", precision))
+cat(sprintf("Recall: %.3f\n", recall))
+cat(sprintf("F1 Score: %.3f\n", f1_score))
+
+```
+## Probabilities
+
+```{r}
+# pred_prob <- predict(model, newx = x, s = "lambda.min", type = "response")
+# 
+# # look at features most correlated with this label
+
+
+```
+## prep for Chi Square
+
+```{r}
+# 
+```
+
+## Chi square ranking of features
+```{r}
+#Ensure label is binary (0/1)
+balanced_df$label <- as.factor(balanced_df$label)
+
+# Remove sample_id
+df_chi <- balanced_df[, -1]
+
+# Get feature names (excluding the label column)
+feature_cols <- setdiff(names(df_chi), "label")
+
+# Compute chi-squared statistic for each feature
+chi_scores_tbl <- df_chi %>% 
+  select(all_of(feature_cols), label) %>% 
+  pivot_longer(cols = -label,
+               names_to  = "feature",
+               values_to = "value") %>% 
+  group_by(feature) %>% 
+  summarise(chi_stat = chisq.test(table(value, label))$statistic,
+            .groups = "drop")
+
+# If you still need a named vector:
+chi_scores <- chi_scores_tbl %>% deframe()
+
+str(chi_scores)
+
+# Create a sorted ranking
+chi_ranking <- sort(chi_scores, decreasing = TRUE, na.last = NA)
+
+# Show top 10 most discriminative features
+head(chi_ranking, 10)
+tail(chi_ranking, 10)
+```
+
+# Apply model to all books
+
+* There may be sub labels - somehow they should be excluded, too.
+* is this finding books with no labels?
+* Do a min/max on probability
+
+```{r}
+
+# build regex:  (^|\. )AI\.Education(\.|$)
+pattern <- paste0(
+  "(^|\\.)",                               # start of string OR a dot
+  str_replace_all(label_test, "\\.", "\\\\."),  # the tag with dots escaped
+  "(\\.|$)"                                # EITHER a dot (more-specific) OR end of string (exact)
+)
+
+# ── 1. drop every book that has the target tag anywhere in its dot-path ──
+df_candidates <- final_df %>% 
+  mutate(label = replace_na(label, "")) %>%            # ① turn NA → ""
+  group_by(id) %>% 
+  filter(!any(str_detect(label, pattern), na.rm = TRUE)) %>%   # keep only books that never match
+  ungroup()
+
+# ────────── 2.  Collapse to ONE row per book for prediction ──────────
+#   Here we just take the first row; replace slice(1) with your own
+#   aggregation (e.g., across(everything(), max)) if you need a different rule.
+df_by_id <- df_candidates %>% 
+  group_by(id) %>% 
+  dplyr::slice(1) %>%                               # one representative row
+  ungroup()
+
+# ────────── 3.  Build the feature matrix (drop id + label) ──────────
+x_candidates <- df_by_id %>% 
+  select(-id, -label) %>% 
+  as.matrix()
+
+# ────────── 4.  Predict probability that each book SHOULD have the tag ────
+pred_prob <- predict(model,
+                     newx = x_candidates,
+                     s = "lambda.min",
+                     type = "response")
+
+# ────────── 5.  Attach probabilities to every row of every candidate book ─
+scores <- df_by_id %>% 
+  select(id) %>% 
+  mutate(prob_label_test = as.vector(pred_prob))
+
+df_scored_full <- df_candidates %>%          # all rows, all labels
+  left_join(scores, by = "id")               # one prob per book
+
+# ────────── 6.  Flag high-confidence books (optional) ──────────
+df_flagged <- scores %>% 
+  filter(prob_label_test >= 0.9) %>%              # adjust threshold as needed
+  arrange(desc(prob_label_test))
+
+```
+
+# Put in a book, get a tag set
+
+
+
