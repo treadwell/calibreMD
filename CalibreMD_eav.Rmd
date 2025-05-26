@@ -45,8 +45,8 @@ remove(list = ls()) # clear environment
 ```{r locations}
 root <- rprojroot::find_rstudio_root_file()
 # this refers to a directory that is not in the repo
-dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
-#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
 
 ```
 
@@ -165,6 +165,8 @@ glimpse(eav)
 
 # 6. Clean up -----------------------------------------------------------------
 dbDisconnect(con)
+
+saveRDS(eav, "eav.rds")
 ```
 ## Evaluate results
 ```{r}
@@ -300,9 +302,6 @@ pred_probs <- sapply(models, function(model) {
 # Save as RDS (recommended)
 saveRDS(pred_probs, "pred_probs.rds")
 
-# colnames(pred_probs) <- colnames(Y)
-# rownames(pred_probs) <- rownames(X)
-
 pred_binary <- ifelse(pred_probs > 0.5, 1L, 0L)
 ```
 # Predict on all data
@@ -310,31 +309,50 @@ pred_binary <- ifelse(pred_probs > 0.5, 1L, 0L)
 ## Transform to sparse matrix
 
 ```{r}
-# Recreate book_features without filtering
-book_features <- eav %>% 
-  filter(feature != "tag") %>%                                 # exclude tag rows
-  mutate(feature = paste(feature, value, sep = ": ")) %>%      # combine into feature: value
-  select(id, feature) %>% 
-  distinct() %>%
-  mutate(
-    row_index = match(id, predict_ids),                        # map to row indices
-    col_index = match(feature, feature_levels)                 # map to training-time feature space
-  ) %>%
-  filter(!is.na(row_index) & !is.na(col_index)) %>%            # remove invalid features or ids
-  arrange(row_index)
+# Assumptions (from your workspace):
+# - book_features has columns: id, feature, row_index, col_index (from training-time mapping)
+# - feature_levels: vector of all features seen during training
+# - predict_ids: vector of book IDs, used for row indexing
+# - models: a list of trained XGBoost models, each with $feature_names
+# - You want to produce: pred_probs_new = data.frame(book_id, <tag1>, <tag2>, ...)
 
-# Get list of all books to predict for
-predict_ids <- sort(unique(book_features$id))
+# Assume predict_ids and book_features are defined
+predict_ids <- unique(book_features$id)  # books to predict for
 
-# Rebuild the feature matrix over the same feature space used for training
-# Assume `feature_levels` was used during training and saved earlier
-new_feature_matrix <- sparseMatrix(
-  i = match(book_features$id, predict_ids),
-  j = match(book_features$feature, feature_levels),
-  x = 1L,
-  dims = c(length(predict_ids), length(feature_levels)),
-  dimnames = list(predict_ids, feature_levels)
-)
+# Add row_index to book_features dynamically
+book_features <- book_features %>%
+  mutate(row_index = match(id, predict_ids))
+
+# Initialize predictions output
+pred_probs_new <- data.frame(book_id = predict_ids)
+
+# Loop over all models/tags
+for (tag in names(models)) {
+  model <- models[[tag]]
+  used_features <- model$feature_names
+
+  # Align features to model-specific ones
+  filtered_book_features <- book_features %>%
+    filter(feature %in% used_features) %>%
+    mutate(col_index = match(feature, used_features)) %>%
+    filter(!is.na(row_index) & !is.na(col_index))  # ✅ ensure no NAs
+
+  # Build sparse matrix
+  new_feature_matrix <- sparseMatrix(
+    i = filtered_book_features$row_index,
+    j = filtered_book_features$col_index,
+    x = 1L,
+    dims = c(length(predict_ids), length(used_features)),
+    dimnames = list(NULL, used_features)
+  )
+
+  # Predict and store
+  preds <- predict(model, newdata = new_feature_matrix)
+  pred_probs_new[[tag]] <- preds
+}
+
+# Optional: Save to disk
+saveRDS(pred_probs_new, "pred_probs_new.rds")
 ```
 
 ## Generate predictions
@@ -346,6 +364,23 @@ pred_probs_new <- data.frame(book_id = predict_ids)
 # Predict using each model and bind to pred_probs_new
 for (tag in names(models)) {
   model <- models[[tag]]
+  used_features <- model$feature_names
+  
+  # Filter features relevant to this model
+  filtered_book_features <- book_features %>%
+    filter(feature %in% used_features) %>%
+    mutate(col_index = match(feature, used_features))
+  
+  # Build sparse matrix with model-specific features
+  new_feature_matrix <- sparseMatrix(
+    i = filtered_book_features$row_index,
+    j = filtered_book_features$col_index,
+    x = 1L,
+    dims = c(length(predict_ids), length(used_features)),
+    dimnames = list(NULL, used_features)
+  )
+  
+  # Predict and store
   preds <- predict(model, newdata = new_feature_matrix)
   pred_probs_new[[tag]] <- preds
 }
@@ -390,6 +425,8 @@ pred_long <- pred_probs_new %>%
 ## find tags that should be added
 
 ```{r}
+#TODO: don't add tags for which a more detailed tag already exists, e.g., if "Computer Science.SD&E" exists, don't recommend "Computer Science"
+
 book_tags <- eav %>% 
   filter(feature == "tag") %>%                 # keep only tag rows 
   mutate(tag = value) %>% 
