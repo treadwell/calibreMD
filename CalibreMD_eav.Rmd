@@ -390,7 +390,12 @@ pred_long <- pred_probs_new %>%
 ## find tags that should be added
 
 ```{r}
-# TODO: check that we're not starting from a filtered list of tags
+book_tags <- eav %>% 
+  filter(feature == "tag") %>%                 # keep only tag rows 
+  mutate(tag = value) %>% 
+  select(id, tag) %>% 
+  distinct() %>%                               # avoid dup rows
+  arrange(id)   
 
 # get existing tags per book
 existing_tags_df <- book_tags %>%
@@ -411,7 +416,7 @@ book_titles_df <- result %>%
   select(book_id = id, title = value) %>%
   distinct()
 
-final_recommendations <- recommended_tags_df %>%
+final_addition_recommendations <- recommended_tags_df %>%
   left_join(book_titles_df, by = "book_id") %>%
   select(book_id, title, recommended_tags)
 
@@ -421,7 +426,27 @@ final_recommendations <- recommended_tags_df %>%
 ## find tags that should be deleted
 
 ```{r}
-# TODO: find books that have tags that shouldn't be there
+# Step 1: Join actual tags with predicted probabilities
+joined_tags <- book_tags %>%
+  rename(book_id = id, tag = tag) %>%
+  left_join(pred_long, by = c("book_id", "tag"))
+
+# Step 2: Filter where tag exists but model assigns low probability (or is NA = no prediction)
+questionable_tags_df <- joined_tags %>%
+  filter(is.na(prob) | prob < 0.1) %>%
+  group_by(book_id) %>%
+  summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
+
+# Step 3: Add titles from EAV
+book_titles_df <- result %>%
+  filter(feature == "title") %>%
+  select(book_id = id, title = value) %>%
+  distinct()
+
+# Step 4: Join for final output
+final_removal_recommendations <- questionable_tags_df %>%
+  left_join(book_titles_df, by = "book_id") %>%
+  select(book_id, title, tags_to_review)
 
 ```
 
