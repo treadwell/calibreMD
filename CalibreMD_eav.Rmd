@@ -200,91 +200,82 @@ head(tag_summary_df)
 
 ```
 
+# Sparse matrices
 
-## One Hot prep
+## One hot encoding
 ```{r}
 library(Matrix)
 
-X <- Matrix::Matrix(X_aligned, sparse = TRUE)
-Y <- Y_aligned  # should be a matrix/data.frame: rows = books, cols = tags
-
-tag_mat <- eav %>% 
-  filter(feature == "tag") %>%                 # keep only tag rows
-  mutate(present = 1L) %>%                     # 1 = tag present
-  select(id, value, present) %>% 
+book_tags <- eav %>% 
+  filter(feature == "tag") %>%                 # keep only tag rows 
+  mutate(tag = value) %>% 
+  select(id, tag) %>% 
   distinct() %>%                               # avoid dup rows
-  pivot_wider(
-    names_from  = value,                       # each tag → column
-    values_from = present,
-    values_fill = 0L                           # 0 = tag absent
-  ) %>% 
   arrange(id)                                  # nice row order
 
-tag_matrix <- tag_mat %>% 
-  select(-id) %>%                 # drop id column for the conversion
-  as.matrix()
+valid_tags <- book_tags %>% 
+  group_by(tag) %>% 
+  summarize(n_books = n_distinct(id)) %>% 
+  filter(n_books >= 10) %>% 
+  pull(tag)
 
-feat_val_mat <- eav %>% 
+book_tags <- book_tags %>%
+  filter(tag %in% valid_tags)
+
+book_features <- eav %>% 
   filter(feature != "tag") %>%                 # exclude tag rows
-  mutate(
-    feat_val = paste(feature, value, sep = ": "),
-    present  = 1L
-  ) %>% 
-  select(id, feat_val, present) %>% 
+  mutate(feature = paste(feature, value, sep = ": ")) %>% 
+  select(id, feature) %>% 
   distinct() %>% 
-  pivot_wider(
-    names_from  = feat_val,                    # each feature-value → column
-    values_from = present,
-    values_fill = 0L
-  ) %>% 
   arrange(id)
 
+common_ids <- sort(intersect(book_tags$id, book_features$id))
 
+book_tags <- book_tags %>%
+  filter(id %in% common_ids)
 
-rownames(tag_matrix) <- tag_mat$id   # add book-id row names
+book_features <- book_features %>%
+  filter(id %in% common_ids)
 
-feat_val_matrix <- feat_val_mat %>% 
-  select(-id) %>% 
-  as.matrix()
+# Create index mappings for row (id) and columns (tag or feature)
+id_levels <- sort(unique(common_ids))  # ensures same order in both matrices
 
-rownames(feat_val_matrix) <- feat_val_mat$id
+# Sparse tag matrix
+tag_levels <- sort(unique(book_tags$tag))
+tag_matrix <- sparseMatrix(
+  i = match(book_tags$id, id_levels),
+  j = match(book_tags$tag, tag_levels),
+  x = 1L,
+  dims = c(length(id_levels), length(tag_levels)),
+  dimnames = list(id_levels, tag_levels)
+)
+
+# Sparse feature matrix
+feature_levels <- sort(unique(book_features$feature))
+feature_matrix <- sparseMatrix(
+  i = match(book_features$id, id_levels),
+  j = match(book_features$feature, feature_levels),
+  x = 1L,
+  dims = c(length(id_levels), length(feature_levels)),
+  dimnames = list(id_levels, feature_levels)
+)
 
 ```
-#  TODO: we have a data set that should work with multi-class classification.  We're essentially doing an encoder to select the set of labels that represent the sample. 
 
-## check for mismatched rows
-
-```{r}
-
-# Prepare input/output
-X <- feat_val_matrix
-Y <- tag_matrix
-
-setdiff(rownames(X), rownames(Y))  # books in X, not in Y
-setdiff(rownames(Y), rownames(X))  # books in Y, not in X
-
-# Find common IDs
-common_ids <- intersect(rownames(X), rownames(Y))
-
-# Subset and reorder both matrices
-X_aligned <- X[common_ids, , drop = FALSE]
-Y_aligned <- Y[common_ids, , drop = FALSE]
-
-```
-
-
+# Train model
 ```{r}
 library(xgboost)
-library(Matrix)
-
-X <- Matrix::Matrix(X_aligned, sparse = TRUE)
-Y <- Y_aligned  # should be a matrix/data.frame: rows = books, cols = tags
 
 models <- list()
 
-for (tag in colnames(Y)) {
-  y <- Y[, tag]                  # binary vector (0/1)
-  dtrain <- xgb.DMatrix(data = X, label = y)
+for (tag in colnames(tag_matrix)) {
+  # Extract label vector and convert to numeric
+  y <- as.numeric(tag_matrix[, tag])
+
+  # Construct DMatrix using sparse feature matrix
+  dtrain <- xgb.DMatrix(data = feature_matrix, label = y)
+
+  # Train binary classifier for this tag
   models[[tag]] <- xgboost(
     data = dtrain,
     objective = "binary:logistic",
@@ -303,49 +294,52 @@ saveRDS(models, "models_xgb_list.rds")
 ## predict on training data
 ```{r}
 pred_probs <- sapply(models, function(model) {
-  predict(model, newdata = X)
+  predict(model, newdata = feature_matrix)
 })
 
 # Save as RDS (recommended)
 saveRDS(pred_probs, "pred_probs.rds")
 
-colnames(pred_probs) <- colnames(Y)
-rownames(pred_probs) <- rownames(X)
+# colnames(pred_probs) <- colnames(Y)
+# rownames(pred_probs) <- rownames(X)
 
 pred_binary <- ifelse(pred_probs > 0.5, 1L, 0L)
 ```
-## predict on all data
+# Predict on all data
+
+## Transform to sparse matrix
 
 ```{r}
-# 'X' used for training; 'feat_val_matrix' is for new/unlabeled books
+# Get list of all books to predict for
+predict_ids <- sort(unique(book_features$id))
 
-# Align columns (ensures same set/order)
-missing_cols <- setdiff(colnames(feat_val_matrix), colnames(X))
-for (col in missing_cols) {
-  feat_val_matrix[, col] <- 0
-}
-# Order columns to match training
-feat_val_matrix <- feat_val_matrix[, colnames(X), drop = FALSE]
-
-X_new <- Matrix::Matrix(feat_val_matrix, sparse = TRUE)
-
-# Predict for all tags using your trained models
-pred_probs_new <- map_dfc(models, ~predict(.x, newdata = X_new))
-
-# Add book_id as a column if you want to track predictions
-pred_probs_new <- pred_probs_new %>%
-  mutate(book_id = rownames(X_new)) %>%
-  relocate(book_id)
-
-# Save as RDS (recommended)
-saveRDS(pred_probs_new, "pred_probs_new.rds")
+# Rebuild the feature matrix over the same feature space used for training
+# Assume `feature_levels` was used during training and saved earlier
+new_feature_matrix <- sparseMatrix(
+  i = match(book_features$id, predict_ids),
+  j = match(book_features$feature, feature_levels),
+  x = 1L,
+  dims = c(length(predict_ids), length(feature_levels)),
+  dimnames = list(predict_ids, feature_levels)
+)
 ```
 
-
-## predict for a given book
+## Generate predictions
 
 ```{r}
+# Initialize prediction data frame
+pred_probs_new <- data.frame(book_id = predict_ids)
 
+# Predict using each model and bind to pred_probs_new
+for (tag in names(models)) {
+  model <- models[[tag]]
+  preds <- predict(model, newdata = new_feature_matrix)
+  pred_probs_new[[tag]] <- preds
+}
+```
+
+## Label extraction
+```{r}
 get_predicted_labels <- function(pred_probs, book_id, threshold = 0.5) {
   my_row <- pred_probs %>% filter(as.character(book_id) == as.character(!!book_id))
   if (nrow(my_row) == 0) return(character(0))
@@ -354,22 +348,44 @@ get_predicted_labels <- function(pred_probs, book_id, threshold = 0.5) {
 }
 
 get_top_n_labels <- function(pred_probs, book_id, n = 2) {
-  # Find the row for this book
   my_row <- pred_probs %>% filter(as.character(book_id) == as.character(!!book_id))
   if (nrow(my_row) == 0) return(character(0))
   tag_cols <- setdiff(colnames(my_row), "book_id")
   tag_scores <- as.numeric(my_row[1, tag_cols])
   names(tag_scores) <- tag_cols
-  # Order by score, descending, and return top n
   top_tags <- names(sort(tag_scores, decreasing = TRUE))[1:n]
   return(top_tags)
 }
 
-threshold_labels <- get_predicted_labels(pred_probs_new, book_id = 900, threshold = 0.5)
+# Example usage
+threshold_labels <- get_predicted_labels(pred_probs_new, book_id = 900, threshold = 0.9)
 print(threshold_labels)
 
 print(get_top_n_labels(pred_probs_new, book_id = 900, n = 5))
+```
+
+## Get full set of labels from threshold
+
+```{r}
+
+pred_long <- pred_probs_new %>%
+  pivot_longer(-book_id, names_to = "tag", values_to = "prob") %>%
+  filter(prob > 0.8)  # or whatever threshold you choose
 
 ```
 
+## find tags that should be added
+
+```{r}
+# TODO: find books that don't have recommended tags already
+
+```
+
+
+## find tags that should be deleted
+
+```{r}
+# TODO: find books that have tags that shouldn't be there
+
+```
 
