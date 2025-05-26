@@ -310,6 +310,19 @@ pred_binary <- ifelse(pred_probs > 0.5, 1L, 0L)
 ## Transform to sparse matrix
 
 ```{r}
+# Recreate book_features without filtering
+book_features <- eav %>% 
+  filter(feature != "tag") %>%                                 # exclude tag rows
+  mutate(feature = paste(feature, value, sep = ": ")) %>%      # combine into feature: value
+  select(id, feature) %>% 
+  distinct() %>%
+  mutate(
+    row_index = match(id, predict_ids),                        # map to row indices
+    col_index = match(feature, feature_levels)                 # map to training-time feature space
+  ) %>%
+  filter(!is.na(row_index) & !is.na(col_index)) %>%            # remove invalid features or ids
+  arrange(row_index)
+
 # Get list of all books to predict for
 predict_ids <- sort(unique(book_features$id))
 
@@ -377,7 +390,30 @@ pred_long <- pred_probs_new %>%
 ## find tags that should be added
 
 ```{r}
-# TODO: find books that don't have recommended tags already
+# TODO: check that we're not starting from a filtered list of tags
+
+# get existing tags per book
+existing_tags_df <- book_tags %>%
+  distinct(id, tag) %>%
+  rename(book_id = id, existing_tag = tag)
+
+# Remove predicted tags already present
+new_tags_df <- pred_long %>%
+  anti_join(existing_tags_df, by = c("book_id", "tag" = "existing_tag"))
+
+recommended_tags_df <- new_tags_df %>%
+  group_by(book_id) %>%
+  summarize(recommended_tags = paste(tag, collapse = ", "), .groups = "drop")
+
+# Assuming `result` contains book_id and full title
+book_titles_df <- result %>%
+  filter(feature == "title") %>%
+  select(book_id = id, title = value) %>%
+  distinct()
+
+final_recommendations <- recommended_tags_df %>%
+  left_join(book_titles_df, by = "book_id") %>%
+  select(book_id, title, recommended_tags)
 
 ```
 
