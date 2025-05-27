@@ -470,7 +470,7 @@ joined_tags <- book_tags %>%
 
 # Step 2: Filter where tag exists but model assigns low probability (or is NA = no prediction)
 questionable_tags_df <- joined_tags %>%
-  filter(is.na(prob) | prob < 0.1) %>%
+  filter(is.na(prob) | prob < 0.05) %>%
   group_by(book_id) %>%
   summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
 
