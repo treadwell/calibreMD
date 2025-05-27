@@ -416,15 +416,17 @@ print(get_top_n_labels(pred_probs_new, book_id = 900, n = 5))
 
 ```{r}
 
-pred_long <- pred_probs_new %>%
-  pivot_longer(-book_id, names_to = "tag", values_to = "prob") %>%
-  filter(prob > 0.8)  # or whatever threshold you choose
+pred_long_all <- pred_probs_new %>%
+  pivot_longer(-book_id, names_to = "tag", values_to = "prob")
 
 ```
 
 ## find tags that should be added
 
 ```{r}
+pred_long_add <- pred_long_all %>%
+  filter(prob > 0.8)
+
 # Step 1: Load existing tags
 book_tags <- eav %>% 
   filter(feature == "tag") %>%                 
@@ -438,7 +440,7 @@ existing_tags_df <- book_tags %>%
   rename(book_id = id, existing_tag = tag)
 
 # Step 2: Remove predicted tags already present
-new_tags_df <- pred_long %>%
+new_tags_df <- pred_long_add %>%
   anti_join(existing_tags_df, by = c("book_id", "tag" = "existing_tag"))
 
 # Step 3: Remove general predicted tags if a more specific one exists
@@ -472,21 +474,18 @@ final_addition_recommendations <- recommended_tags_df %>%
 ## find tags that should be deleted
 
 ```{r}
-# Step 1: Normalize tags (defensive coding)
 book_tags_clean <- book_tags %>%
   mutate(tag = str_trim(str_to_lower(tag))) %>%
   rename(book_id = id)
 
-pred_long_clean <- pred_long %>%
+pred_long_clean <- pred_long_all %>%
   mutate(tag = str_trim(str_to_lower(tag)))
 
-# Step 2: Join actual tags with model predictions
 joined_tags <- book_tags_clean %>%
   inner_join(pred_long_clean, by = c("book_id", "tag"))
 
-# Step 3: Filter for tags the model says are very unlikely
 tags_to_remove <- joined_tags %>%
-  filter(prob < 0.5) %>%
+  filter(prob < 0.1) %>%  # or whatever threshold
   group_by(book_id) %>%
   summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
 
