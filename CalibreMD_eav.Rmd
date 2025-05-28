@@ -185,8 +185,9 @@ titles <- result %>%                  # result already holds complete titles
 ## 3.  Merge & tidy  --------------------------------------------------------
 book_summary_df <- titles %>% 
   full_join(tag_counts, by = "id") %>% # bring in tag counts
-  mutate(n_tags = coalesce(n_tags, 0L)) %>%  # books with no tags → 0
-  arrange(desc(n_tags))                    # optional: sort by tag count
+  mutate(n_tags = coalesce(n_tags, 0L),
+         title_length = nchar(title)) %>%  # books with no tags → 0
+  arrange(desc(title_length))                    # optional: sort by tag count
 
 head(book_summary_df)
 
