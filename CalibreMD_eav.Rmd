@@ -531,10 +531,12 @@ suggest_tag_additions <- function(tag_name,
       by = "book_id"
     ) %>% 
     left_join(titles, by = "book_id") %>%
-    arrange(desc(prob))
+    arrange(desc(prob)) %>% 
+    select(book_id, title, tag, prob)
 }
 
-suggest_tag_additions("Supply Chain", prob_min = 0.60)
+final_single_tag_additions <- suggest_tag_additions("Companies.Wiley", prob_min = 0.5)
+print(final_single_tag_additions)
 
 ```
 
