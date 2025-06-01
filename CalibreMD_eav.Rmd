@@ -500,4 +500,41 @@ final_removal_recommendations <- tags_to_remove %>%
   select(book_id, title, tags_to_review)
 
 ```
+## given a tag, what books should it be in?
+
+```{r}
+suggest_tag_additions <- function(tag_name,
+                                  predictions   = pred_long_all,
+                                  existing_tags = existing_tags_df,
+                                  titles        = book_titles_df,
+                                  prob_min      = 0) {
+    # basic validation ----------------------------------------------------
+  stopifnot(
+    all(c("book_id", "tag", "prob") %in% names(predictions)),
+    all(c("book_id", "existing_tag") %in% names(existing_tags)),
+    "prob_min must be in [0,1]" = prob_min >= 0 & prob_min <= 1
+  )
+  
+    # ── build a regex that matches any descendant tag of tag_name ─────────
+  # e.g. "Supply Chain"   →  "^Supply Chain\\."   (note the escaped dot)
+  descendant_regex <- paste0("^", stringr::str_replace_all(tag_name, "[.]", "\\\\."), "\\.")
+
+  predictions %>%
+    filter(tag == tag_name,            # <-- leave it **quoted**
+           prob >= prob_min) %>%
+    anti_join(existing_tags,
+              by = c("book_id", "tag" = "existing_tag")) %>%
+    anti_join(
+      existing_tags %>%
+        filter(str_detect(existing_tag, descendant_regex)) %>%      # keep only the descendants
+        distinct(book_id),                                          # we just need the IDs
+      by = "book_id"
+    ) %>% 
+    left_join(titles, by = "book_id") %>%
+    arrange(desc(prob))
+}
+
+suggest_tag_additions("Supply Chain", prob_min = 0.60)
+
+```
 
