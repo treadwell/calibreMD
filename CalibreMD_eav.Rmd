@@ -81,6 +81,11 @@ md_db <- paste0(dataDir, '/metadata.db')
 
 ft_db
 ```
+## Source R modules
+```{r}
+# source("my_module.R")
+```
+
 # Get data
 
 ## Pull from db
@@ -110,10 +115,14 @@ sql <- "
 	order by id;
 "
 
-# build the tokenizer and replace title and comments with additional EAV rows where feature = token and value = token
-
 result <- dbGetQuery(con, sql)   # pulls rows straight into an R data-frame
 
+# 6. Clean up -----------------------------------------------------------------
+dbDisconnect(con)
+
+```
+## Tokenize text features
+```{r}
 text_feats <- c("title", "comment")   # features to tokenize
 
 # Replace with your actual column names
@@ -161,14 +170,9 @@ eav <- result %>%
 
 glimpse(eav)
 
-#TODO: convert to factors?
-
-# 6. Clean up -----------------------------------------------------------------
-dbDisconnect(con)
-
 saveRDS(eav, "eav.rds")
 ```
-## Evaluate results
+## Explore data
 ```{r}
 ## 1.  Tag counts  ----------------------------------------------------------
 tag_counts <- eav %>% 
@@ -203,7 +207,7 @@ head(tag_summary_df)
 
 ```
 
-# Sparse matrices
+# Create sparse matrices
 
 ## One hot encoding
 ```{r}
@@ -266,6 +270,7 @@ feature_matrix <- sparseMatrix(
 ```
 
 # Train model
+
 ```{r}
 library(xgboost)
 
@@ -293,8 +298,8 @@ saveRDS(models, "models_xgb_list.rds")
 # models <- readRDS("models_xgb_list.rds")
 ```
 
-
-## predict on training data
+# Evaluate on Training Data
+## Predict on training data
 ```{r}
 pred_probs <- sapply(models, function(model) {
   predict(model, newdata = feature_matrix)
@@ -305,17 +310,11 @@ saveRDS(pred_probs, "pred_probs.rds")
 
 pred_binary <- ifelse(pred_probs > 0.5, 1L, 0L)
 ```
-# Predict on all data
 
+# Predict on all data
 ## Transform to sparse matrix
 
 ```{r}
-# Assumptions (from your workspace):
-# - book_features has columns: id, feature, row_index, col_index (from training-time mapping)
-# - feature_levels: vector of all features seen during training
-# - predict_ids: vector of book IDs, used for row indexing
-# - models: a list of trained XGBoost models, each with $feature_names
-# - You want to produce: pred_probs_new = data.frame(book_id, <tag1>, <tag2>, ...)
 
 # Assume predict_ids and book_features are defined
 predict_ids <- unique(book_features$id)  # books to predict for
@@ -476,17 +475,17 @@ final_addition_recommendations <- recommended_tags_df %>%
 
 ```{r}
 book_tags_clean <- book_tags %>%
-  mutate(tag = str_trim(str_to_lower(tag))) %>%
+  mutate(tag = str_trim(tag)) %>%
   rename(book_id = id)
 
 pred_long_clean <- pred_long_all %>%
-  mutate(tag = str_trim(str_to_lower(tag)))
+  mutate(tag = str_trim(tag))
 
 joined_tags <- book_tags_clean %>%
   inner_join(pred_long_clean, by = c("book_id", "tag"))
 
 tags_to_remove <- joined_tags %>%
-  filter(prob < 0.1) %>%  # or whatever threshold
+  filter(prob < 0.05) %>%  # or whatever threshold
   group_by(book_id) %>%
   summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
 
