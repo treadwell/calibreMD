@@ -45,8 +45,8 @@ remove(list = ls()) # clear environment
 ```{r locations}
 root <- rprojroot::find_rstudio_root_file()
 # this refers to a directory that is not in the repo
-#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
-dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
 
 ```
 
