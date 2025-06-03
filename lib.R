@@ -43,6 +43,11 @@ load_eav <- function(dbname){
 explode_text_features <- function(eav){
   text_feats <- c("title", "comment") # features to tokenize
   
+  ## capture un-tokenized titles
+  original_titles <- eav %>% 
+    dplyr::filter(feature == "title") %>%      # only the title rows
+    dplyr::mutate(feature = "title_original")  # rename the attribute
+  
   text_values <- eav %>%
     filter(feature %in% text_feats) %>% 
     select(value) %>%
@@ -75,13 +80,16 @@ explode_text_features <- function(eav){
     rename(value = tokens) # align col-name
   
   # Recombine with untouched rows (as eav)
-  eav %>% 
-    filter(!feature %in% text_feats) %>% # keep other features
-    bind_rows(token_rows) %>% # add the token rows
-    mutate(
-      id = as.numeric(id), # enforce numeric
-      feature = as.character(feature), # ensure character
-      value = as.character(value))
+  dplyr::bind_rows(
+    eav %>% 
+      dplyr::filter(!feature %in% text_feats), # untouched rows
+      original_titles, # full titles (title_original)
+      token_rows) %>%  # exploded tokens
+    dplyr::mutate(
+      id      = as.numeric(id),
+      feature = as.character(feature),
+      value   = as.character(value)
+    )
 }
 
 get_tag_counts <- function(eav){
@@ -93,7 +101,7 @@ get_tag_counts <- function(eav){
 
 get_book_summary <- function(eav){
   eav %>%
-    filter(feature == "title") %>% 
+    filter(feature == "title_original") %>% 
     distinct(id, .keep_all = TRUE) %>% 
     transmute(id, title = value) %>% 
     full_join(tag_counts, by = "id") %>%
@@ -128,7 +136,8 @@ prep_dataset <- function(eav){
     filter(tag %in% valid_tags)
   
   book_features <- eav %>% 
-    filter(feature != "tag") %>%
+    # filter(feature != "tag") %>%
+    filter(!feature %in% c("tag", "title_original")) %>% 
     mutate(feature = paste(feature, value, sep = ": ")) %>% 
     select(id, feature) %>% 
     distinct() %>% 

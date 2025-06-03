@@ -47,6 +47,7 @@ models <- train_models(dataset)
 predictions_probs <- predict_tags(models, dataset)
 predictions_discrete <- threshold_predictions(predictions_probs, book_id = 900, threshold = 0.9)
 top_n_labels <- get_top_n_labels(predictions_probs, book_id = 900, n = 5)
+print(top_n_labels)
 ```
 
 ## Get full set of labels from threshold
@@ -97,7 +98,7 @@ recommended_tags_df <- filtered_tags_df %>%
 
 # Step 5: Join with titles
 book_titles_df <- eav %>%
-  filter(feature == "title") %>%
+  filter(feature == "title_original") %>%
   select(book_id = id, title = value) %>%
   distinct()
 
@@ -127,8 +128,8 @@ tags_to_remove <- joined_tags %>%
   summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
 
 # Step 4: Add book titles
-book_titles_df <- result %>%
-  filter(feature == "title") %>%
+book_titles_df <- eav %>%
+  filter(feature == "title_original") %>%
   select(book_id = id, title = value) %>%
   distinct()
 
