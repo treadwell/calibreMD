@@ -118,6 +118,23 @@ get_tag_summary <- function(eav){
     arrange(desc(book_count))
 }
 
+get_book_titles <- function(eav){
+  titles <- eav %>%
+    filter(feature == "title_original") %>%
+    select(book_id = id, title = value) %>%
+    distinct()
+}
+
+get_existing_tags <- function(eav) {
+  existing_tags <- eav %>% 
+    filter(feature == "tag") %>%                 
+    mutate(book_id = id,
+           existing_tag = value) %>% 
+    select(book_id, existing_tag) %>% 
+    distinct() %>%                               
+    arrange(book_id)
+}
+
 prep_dataset <- function(eav){
   book_tags <- eav %>% 
     filter(feature == "tag") %>% 
@@ -276,20 +293,20 @@ get_recommended_add <- function(eav, pred_long_all, add_threshold) {
     mutate(tag = value) %>% 
     select(id, tag) %>% 
     distinct() %>%                               
-    arrange(id)   
+    arrange(id)
   
-  existing_tags_df <- book_tags %>%
-    distinct(id, tag) %>%
-    rename(book_id = id, existing_tag = tag)
+  
+  
+  existing_tags <- get_existing_tags(eav)
   
   # Step 2: Remove predicted tags already present
   new_tags_df <- pred_long_add %>%
-    anti_join(existing_tags_df, by = c("book_id", "tag" = "existing_tag"))
+    anti_join(existing_tags, by = c("book_id", "tag" = "existing_tag"))
   
   # Step 3: Remove general predicted tags if a more specific one exists
   # Join predictions with all existing tags for the same book
   filtered_tags_df <- new_tags_df %>%
-    left_join(existing_tags_df, by = "book_id") %>%
+    left_join(existing_tags, by = "book_id") %>%
     group_by(book_id, tag) %>%
     filter(!any(stringr::str_starts(existing_tag, paste0(tag, ".")))) %>%  # keep tag only if no more specific one exists
     ungroup() %>%
@@ -302,13 +319,10 @@ get_recommended_add <- function(eav, pred_long_all, add_threshold) {
     summarize(recommended_tags = paste(tag, collapse = ", "), .groups = "drop")
   
   # Step 5: Join with titles
-  book_titles_df <- eav %>%
-    filter(feature == "title_original") %>%
-    select(book_id = id, title = value) %>%
-    distinct()
+  titles <- get_book_titles(eav)
   
   final_addition_recommendations <- recommended_tags_df %>%
-    left_join(book_titles_df, by = "book_id") %>%
+    left_join(titles, by = "book_id") %>%
     select(book_id, title, recommended_tags)
 }
 
@@ -337,12 +351,46 @@ get_recommended_remove <- function(eav, pred_long_all, add_threshold = 0.05) {
     summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
   
   # Step 4: Add book titles
-  book_titles_df <- eav %>%
-    filter(feature == "title_original") %>%
-    select(book_id = id, title = value) %>%
-    distinct()
+  titles <- get_book_titles(eav)
   
   final_removal_recommendations <- tags_to_remove %>%
-    left_join(book_titles_df, by = "book_id") %>%
+    left_join(titles, by = "book_id") %>%
     select(book_id, title, tags_to_review)
+}
+
+suggest_tag_additions <- function(eav,
+                                  predictions   = pred_long_all,
+                                  tag_name,
+                                  prob_min      = 0) {
+  # basic validation ----------------------------------------------------
+  stopifnot(
+    all(c("book_id", "tag", "prob") %in% names(predictions)),
+    "prob_min must be in [0,1]" = prob_min >= 0 & prob_min <= 1
+  )
+  
+  # Step 1: Get book titles
+  titles <- get_book_titles(eav)
+  
+  # Step 2 Get existing tags
+  existing_tags <- get_existing_tags(eav)
+  
+  # ── build a regex that matches any descendant tag of tag_name ─────────
+  # e.g. "Supply Chain"   →  "^Supply Chain\\."   (note the escaped dot)
+  descendant_regex <- paste0("^", stringr::str_replace_all(tag_name, "[.]", "\\\\."), "\\.")
+  
+  predictions %>%
+    filter(tag == tag_name,
+           prob >= prob_min) %>%
+    anti_join(existing_tags,
+              by = c("book_id", 
+                     "tag" = "existing_tag")) %>%
+    anti_join(
+      existing_tags %>%
+        filter(str_detect(existing_tag, descendant_regex)) %>% # keep only the descendants
+        distinct(book_id), # we just need the IDs
+      by = "book_id"
+    ) %>% 
+    left_join(titles, by = "book_id") %>%
+    arrange(desc(prob)) %>% 
+    select(book_id, title, tag, prob)
 }
