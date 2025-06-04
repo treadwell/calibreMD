@@ -53,9 +53,7 @@ print(top_n_labels)
 ## Get full set of labels from threshold
 
 ```{r}
-
 pred_long_all <- get_label_probabilities(predictions_probs)
-
 ```
 
 ## find tags that should be added
@@ -70,7 +68,6 @@ final_addition_recommendations <- get_recommended_add(eav, pred_long_all, add_th
 ## find tags that should be deleted
 
 ```{r}
-
 remove_threshold <- 0.05
 
 final_removal_recommendations <- get_recommended_remove (eav, pred_long_all, remove_threshold)
@@ -83,6 +80,5 @@ tag_name <- "ir"
 
 final_single_tag_additions <- suggest_tag_additions(eav, pred_long_all, tag_name, prob_min = 0.5)
 print(final_single_tag_additions)
-
 ```
 
