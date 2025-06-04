@@ -13,8 +13,8 @@ source("lib.R")
 setup_formatting()
 setup_packages()
 
-dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
-#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
 
 md_db <- find_md_db(dataDir)
 ```
@@ -54,90 +54,30 @@ print(top_n_labels)
 
 ```{r}
 
-pred_long_all <- predictions_probs %>%
-  tidyr::pivot_longer(-book_id, names_to = "tag", values_to = "prob")
+
+
+pred_long_all <- get_label_probabilities(predictions_probs)
 
 ```
 
 ## find tags that should be added
 
 ```{r}
-pred_long_add <- pred_long_all %>%
-  filter(prob > 0.8)
+add_threshold <- 0.8
 
-# Step 1: Load existing tags
-book_tags <- eav %>% 
-  filter(feature == "tag") %>%                 
-  mutate(tag = value) %>% 
-  select(id, tag) %>% 
-  distinct() %>%                               
-  arrange(id)   
-
-existing_tags_df <- book_tags %>%
-  distinct(id, tag) %>%
-  rename(book_id = id, existing_tag = tag)
-
-# Step 2: Remove predicted tags already present
-new_tags_df <- pred_long_add %>%
-  anti_join(existing_tags_df, by = c("book_id", "tag" = "existing_tag"))
-
-# Step 3: Remove general predicted tags if a more specific one exists
-# Join predictions with all existing tags for the same book
-filtered_tags_df <- new_tags_df %>%
-  left_join(existing_tags_df, by = "book_id") %>%
-  group_by(book_id, tag) %>%
-  filter(!any(stringr::str_starts(existing_tag, paste0(tag, ".")))) %>%  # keep tag only if no more specific one exists
-  ungroup() %>%
-  select(book_id, tag) %>%
-  distinct()
-
-# Step 4: Aggregate recommendations
-recommended_tags_df <- filtered_tags_df %>%
-  group_by(book_id) %>%
-  summarize(recommended_tags = paste(tag, collapse = ", "), .groups = "drop")
-
-# Step 5: Join with titles
-book_titles_df <- eav %>%
-  filter(feature == "title_original") %>%
-  select(book_id = id, title = value) %>%
-  distinct()
-
-final_addition_recommendations <- recommended_tags_df %>%
-  left_join(book_titles_df, by = "book_id") %>%
-  select(book_id, title, recommended_tags)
-
+final_addition_recommendations <- get_recommended_add(eav, pred_long_all, add_threshold)
 ```
 
 
 ## find tags that should be deleted
 
 ```{r}
-book_tags_clean <- book_tags %>%
-  mutate(tag = str_trim(tag)) %>%
-  rename(book_id = id)
 
-pred_long_clean <- pred_long_all %>%
-  mutate(tag = str_trim(tag))
+remove_threshold <- 0.05
 
-joined_tags <- book_tags_clean %>%
-  inner_join(pred_long_clean, by = c("book_id", "tag"))
-
-tags_to_remove <- joined_tags %>%
-  filter(prob < 0.05) %>%  # or whatever threshold
-  group_by(book_id) %>%
-  summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
-
-# Step 4: Add book titles
-book_titles_df <- eav %>%
-  filter(feature == "title_original") %>%
-  select(book_id = id, title = value) %>%
-  distinct()
-
-final_removal_recommendations <- tags_to_remove %>%
-  left_join(book_titles_df, by = "book_id") %>%
-  select(book_id, title, tags_to_review)
-
+final_removal_recommendations <- get_recommended_remove (eav, pred_long_all, remove_threshold)
 ```
+
 ## given a tag, what books should it be in?
 
 ```{r}
@@ -173,7 +113,7 @@ suggest_tag_additions <- function(tag_name,
     select(book_id, title, tag, prob)
 }
 
-final_single_tag_additions <- suggest_tag_additions("@Ken Brooks", prob_min = 0.5)
+final_single_tag_additions <- suggest_tag_additions("slut", prob_min = 0.5)
 print(final_single_tag_additions)
 
 ```

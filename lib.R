@@ -260,3 +260,89 @@ get_top_n_labels <- function(pred_probs, book_id, n = 2) {
   top_tags <- names(sort(tag_scores, decreasing = TRUE))[1:n]
   return(top_tags)
 }
+
+get_label_probabilities <- function(predictions_probs){
+  pred_long_all <- predictions_probs %>%
+    tidyr::pivot_longer(-book_id, names_to = "tag", values_to = "prob")
+}
+
+get_recommended_add <- function(eav, pred_long_all, add_threshold) {
+  pred_long_add <- pred_long_all %>%
+    filter(prob > add_threshold)
+  
+  # Step 1: Load existing tags
+  book_tags <- eav %>% 
+    filter(feature == "tag") %>%                 
+    mutate(tag = value) %>% 
+    select(id, tag) %>% 
+    distinct() %>%                               
+    arrange(id)   
+  
+  existing_tags_df <- book_tags %>%
+    distinct(id, tag) %>%
+    rename(book_id = id, existing_tag = tag)
+  
+  # Step 2: Remove predicted tags already present
+  new_tags_df <- pred_long_add %>%
+    anti_join(existing_tags_df, by = c("book_id", "tag" = "existing_tag"))
+  
+  # Step 3: Remove general predicted tags if a more specific one exists
+  # Join predictions with all existing tags for the same book
+  filtered_tags_df <- new_tags_df %>%
+    left_join(existing_tags_df, by = "book_id") %>%
+    group_by(book_id, tag) %>%
+    filter(!any(stringr::str_starts(existing_tag, paste0(tag, ".")))) %>%  # keep tag only if no more specific one exists
+    ungroup() %>%
+    select(book_id, tag) %>%
+    distinct()
+  
+  # Step 4: Aggregate recommendations
+  recommended_tags_df <- filtered_tags_df %>%
+    group_by(book_id) %>%
+    summarize(recommended_tags = paste(tag, collapse = ", "), .groups = "drop")
+  
+  # Step 5: Join with titles
+  book_titles_df <- eav %>%
+    filter(feature == "title_original") %>%
+    select(book_id = id, title = value) %>%
+    distinct()
+  
+  final_addition_recommendations <- recommended_tags_df %>%
+    left_join(book_titles_df, by = "book_id") %>%
+    select(book_id, title, recommended_tags)
+}
+
+get_recommended_remove <- function(eav, pred_long_all, add_threshold = 0.05) {
+  # Step 1: Load existing tags
+  book_tags <- eav %>% 
+    filter(feature == "tag") %>%                 
+    mutate(tag = value) %>% 
+    select(id, tag) %>% 
+    distinct() %>%                               
+    arrange(id)
+  
+  book_tags_clean <- book_tags %>%
+    mutate(tag = str_trim(tag)) %>%
+    rename(book_id = id)
+  
+  pred_long_clean <- pred_long_all %>%
+    mutate(tag = str_trim(tag))
+  
+  joined_tags <- book_tags_clean %>%
+    inner_join(pred_long_clean, by = c("book_id", "tag"))
+  
+  tags_to_remove <- joined_tags %>%
+    filter(prob < remove_threshold) %>%  # or whatever threshold
+    group_by(book_id) %>%
+    summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")
+  
+  # Step 4: Add book titles
+  book_titles_df <- eav %>%
+    filter(feature == "title_original") %>%
+    select(book_id = id, title = value) %>%
+    distinct()
+  
+  final_removal_recommendations <- tags_to_remove %>%
+    left_join(book_titles_df, by = "book_id") %>%
+    select(book_id, title, tags_to_review)
+}
