@@ -2,6 +2,7 @@ setup_packages <- function() {
   library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
   invisible(lapply(c(
     "tidyr",
+    "stringr",
     "tidytext",
     "Matrix",
     "RSQLite",
@@ -336,11 +337,11 @@ get_recommended_remove <- function(eav, pred_long_all, add_threshold = 0.05) {
     arrange(id)
   
   book_tags_clean <- book_tags %>%
-    mutate(tag = str_trim(tag)) %>%
+    mutate(tag = stringr::str_trim(tag)) %>%
     rename(book_id = id)
   
   pred_long_clean <- pred_long_all %>%
-    mutate(tag = str_trim(tag))
+    mutate(tag = stringr::str_trim(tag))
   
   joined_tags <- book_tags_clean %>%
     inner_join(pred_long_clean, by = c("book_id", "tag"))
@@ -386,7 +387,7 @@ suggest_tag_additions <- function(eav,
                      "tag" = "existing_tag")) %>%
     anti_join(
       existing_tags %>%
-        filter(str_detect(existing_tag, descendant_regex)) %>% # keep only the descendants
+        filter(stringr::str_detect(existing_tag, descendant_regex)) %>% # keep only the descendants
         distinct(book_id), # we just need the IDs
       by = "book_id"
     ) %>% 
