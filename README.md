@@ -7,6 +7,8 @@ CalibreMD is an R package for analyzing Calibre ebook library metadata and recom
 - Processes and tokenizes text features (title, comment, etc.)
 - Provides tag statistics and summaries
 - Prepares data for machine learning models
+- Trains XGBoost models for tag prediction
+- Recommends new tags and identifies potentially incorrect tags
 - Includes a test suite for robust development
 
 ## Installation
@@ -23,6 +25,8 @@ CalibreMD is an R package for analyzing Calibre ebook library metadata and recom
    ```
 
 ## Usage
+
+### Basic Usage
 
 Load the package and connect to your Calibre library:
 
@@ -45,7 +49,28 @@ tag_counts <- get_tag_counts(metadata)
 prepared <- prep_dataset(metadata)
 ```
 
-## Testing
+### Tag Recommendations
+
+```r
+# Train models
+models <- train_models(prepared)
+
+# Get predictions
+predictions <- predict_tags(models, prepared)
+
+# Get recommended tags to add (probability > 0.8)
+recommendations <- get_recommended_add(metadata, predictions, add_threshold = 0.8)
+
+# Find potentially incorrect tags (probability < 0.05)
+to_review <- get_recommended_remove(metadata, predictions, remove_threshold = 0.05)
+
+# Get suggestions for a specific tag
+suggestions <- suggest_tag_additions(metadata, predictions, tag_name = "@your_tag", prob_min = 0.5)
+```
+
+## Development
+
+### Testing
 
 This package uses `testthat` for unit testing. To run the tests:
 
@@ -62,6 +87,18 @@ This package uses `testthat` for unit testing. To run the tests:
    covr::report(covr::package_coverage(), file = "coverage.html")
    # Then open coverage.html in your browser
    ```
+
+### Continuous Testing
+
+The repository includes a watch script that automatically runs tests when source files change. To use it:
+
+1. Make sure `fswatch` is installed (available by default on macOS)
+2. Run the watch script in a separate terminal:
+   ```sh
+   ./watch-tests.sh
+   ```
+
+The script will monitor the `R/` and `tests/` directories and automatically run the test suite whenever a file changes. This is useful for test-driven development and catching issues early.
 
 ## Contributing
 
