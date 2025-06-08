@@ -76,7 +76,7 @@ final_removal_recommendations <- get_recommended_remove (eav, pred_long_all, rem
 ## given a tag, what books should it be in?
 
 ```{r}
-tag_name <- "prost"
+tag_name <- "@Shaelyn Bagley"
 
 final_single_tag_additions <- suggest_tag_additions(eav, pred_long_all, tag_name, prob_min = 0.5)
 print(final_single_tag_additions)
