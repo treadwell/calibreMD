@@ -60,8 +60,8 @@ explode_text_features <- function(eav){
   
   ## capture un-tokenized titles
   original_titles <- eav %>% 
-    dplyr::filter(feature == "title") %>%      # only the title rows
-    dplyr::mutate(feature = "title_original")  # rename the attribute
+    dplyr::filter(feature == "title") %>%  # only the title rows
+    dplyr::mutate(feature = "title_original") # rename the attribute
   
   text_values <- eav %>%
     filter(feature %in% text_feats) %>% 
@@ -75,7 +75,7 @@ explode_text_features <- function(eav){
   vocab <- train %>%
     tidytext::unnest_tokens(word, text, token = "words") %>% # split to lowercase words
     distinct(word) %>%
-    pull(word)  # ← this extracts the column as a character vector
+    pull(word) # this extracts the column as a character vector
   
   # apply: function to tokenize new text with that vocab
   tokenize <- function(txt) {
@@ -101,9 +101,9 @@ explode_text_features <- function(eav){
     original_titles, # full titles (title_original)
     token_rows) %>%  # exploded tokens
     dplyr::mutate(
-      id      = as.numeric(id),
+      id = as.numeric(id),
       feature = as.character(feature),
-      value   = as.character(value)
+      value = as.character(value)
     )
 }
 
@@ -237,6 +237,10 @@ prep_dataset <- function(eav){
   )
 }
 
+#' Train models for tag prediction
+#' @param dataset A list containing feature matrix and tag matrix
+#' @return A list of trained models
+#' @export
 train_models <- function(dataset){
   requireNamespace("xgboost", quietly = TRUE)
   X <- dataset$X
@@ -258,6 +262,11 @@ train_models <- function(dataset){
   models
 }
 
+#' Predict tags using trained models
+#' @param models List of trained models
+#' @param dataset Dataset containing features
+#' @return A data frame of predictions
+#' @export
 predict_tags <- function(models, dataset){
   requireNamespace("xgboost", quietly = TRUE)
   book_features <- dataset$book_features
@@ -299,6 +308,12 @@ predict_tags <- function(models, dataset){
   pred_probs_new
 }
 
+#' Threshold predictions to get discrete labels
+#' @param pred_probs Prediction probabilities
+#' @param book_id Book ID to threshold
+#' @param threshold Probability threshold
+#' @return Character vector of predicted tags
+#' @export
 threshold_predictions <- function(pred_probs, book_id, threshold = 0.5) {
   my_row <- pred_probs %>% filter(as.character(book_id) == as.character(!!book_id))
   if (nrow(my_row) == 0) return(character(0))
@@ -306,6 +321,12 @@ threshold_predictions <- function(pred_probs, book_id, threshold = 0.5) {
   tag_cols[as.numeric(my_row[1, tag_cols]) > threshold]
 }
 
+#' Get top N labels for a book
+#' @param pred_probs Prediction probabilities
+#' @param book_id Book ID to get labels for
+#' @param n Number of top labels to return
+#' @return Character vector of top N labels
+#' @export
 get_top_n_labels <- function(pred_probs, book_id, n = 2) {
   my_row <- pred_probs %>% filter(as.character(book_id) == as.character(!!book_id))
   if (nrow(my_row) == 0) return(character(0))
@@ -316,6 +337,10 @@ get_top_n_labels <- function(pred_probs, book_id, n = 2) {
   return(top_tags)
 }
 
+#' Get label probabilities in long format
+#' @param predictions_probs Prediction probabilities
+#' @return A data frame of probabilities in long format
+#' @export
 get_label_probabilities <- function(predictions_probs){
   pred_long_all <- predictions_probs %>%
     tidyr::pivot_longer(-book_id, names_to = "tag", values_to = "prob")
@@ -334,14 +359,9 @@ load_existing_tags <- function(eav) {
 # Helper to clean and join tags
 clean_and_join_tags <- function(book_tags, pred_long_all) {
   book_tags_clean <- book_tags %>%
-    mutate(tag = stringr::str_trim(tag)) %>%
     rename(book_id = id)
-  
-  pred_long_clean <- pred_long_all %>%
-    mutate(tag = stringr::str_trim(tag))
-  
   book_tags_clean %>%
-    inner_join(pred_long_clean, by = c("book_id", "tag"))
+    inner_join(pred_long_all, by = c("book_id", "tag"))
 }
 
 # Helper to join with titles
@@ -369,6 +389,12 @@ filter_descendant_tags <- function(existing_tags, tag_name) {
     distinct(book_id)
 }
 
+#' Get recommended tags to add
+#' @param eav EAV data frame
+#' @param pred_long_all Predictions in long format
+#' @param add_threshold Threshold for adding tags
+#' @return A data frame of recommended tags to add
+#' @export
 get_recommended_add <- function(eav, pred_long_all, add_threshold) {
   pred_long_add <- filter_by_threshold(pred_long_all, add_threshold, greater_than = TRUE)
   
@@ -398,6 +424,12 @@ get_recommended_add <- function(eav, pred_long_all, add_threshold) {
   join_with_titles(recommended_tags_df, eav, tag_col = "recommended_tags")
 }
 
+#' Get recommended tags to remove
+#' @param eav EAV data frame
+#' @param pred_long_all Predictions in long format
+#' @param remove_threshold Threshold for removing tags
+#' @return A data frame of recommended tags to remove
+#' @export
 get_recommended_remove <- function(eav, pred_long_all, remove_threshold = 0.05) {
   # Load existing tags
   book_tags <- load_existing_tags(eav)
@@ -415,6 +447,13 @@ get_recommended_remove <- function(eav, pred_long_all, remove_threshold = 0.05) 
   join_with_titles(tags_to_remove, eav, tag_col = "tags_to_review")
 }
 
+#' Suggest tag additions for a specific tag
+#' @param eav EAV data frame
+#' @param predictions Predictions in long format
+#' @param tag_name Tag to suggest additions for
+#' @param prob_min Minimum probability threshold
+#' @return A data frame of suggested tag additions
+#' @export
 suggest_tag_additions <- function(eav, predictions = pred_long_all, tag_name, prob_min = 0) {
   stopifnot(
     all(c("book_id", "tag", "prob") %in% names(predictions)),
