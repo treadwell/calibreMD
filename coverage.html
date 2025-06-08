@@ -1,0 +1,3155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<style>body{background-color:white;}</style>
+<link href="lib/htmltools-fill-0.5.8.1/fill.css" rel="stylesheet" />
+<script src="lib/htmlwidgets-1.6.4/htmlwidgets.js"></script>
+<link href="lib/datatables-css-0.0.0/datatables-crosstalk.css" rel="stylesheet" />
+<script src="lib/datatables-binding-0.33/datatables.js"></script>
+<script src="lib/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<link href="lib/dt-core-1.13.6/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="lib/dt-core-1.13.6/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="lib/dt-core-1.13.6/js/jquery.dataTables.min.js"></script>
+<link href="lib/crosstalk-1.2.1/css/crosstalk.min.css" rel="stylesheet" />
+<script src="lib/crosstalk-1.2.1/js/crosstalk.min.js"></script>
+<link href="lib/highlight.js-6.2/rstudio.css" rel="stylesheet" />
+<script src="lib/highlight.js-6.2/highlight.pack.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="lib/bootstrap-3.3.5/css/bootstrap.min.css" rel="stylesheet" />
+<link href="lib/bootstrap-3.3.5/css/bootstrap-theme.min.css" rel="stylesheet" />
+<script src="lib/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="lib/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="lib/bootstrap-3.3.5/shim/respond.min.js"></script>
+
+</head>
+<body>
+<div class="container-fluid">
+  <style type="text/css">table tr:hover td {
+  font-weight:bold;text-decoration:none
+}
+table tr.covered td{
+  background-color:rgba(95,151,68,0.3)
+}
+
+table tr:hover.covered .num{
+  background-color:rgba(95,151,68,0.7)
+}
+table tr.missed td{
+  background-color:rgba(185,73,71,0.3)
+}
+table tr:hover.missed .num{
+  background-color:rgba(185,73,71,0.7)
+}
+
+table tr.missed:hover td{
+  -webkit-box-shadow:0 -2px 0 0 #b94947 inset;
+  -moz-box-shadow:0 -2px 0 0 #b94947 inset;
+  box-shadow:0 -2px 0 0 #b94947 inset
+}
+table tr.covered:hover td{
+  -webkit-box-shadow:0 -2px 0 0 #5f9744 inset;
+  -moz-box-shadow:0 -2px 0 0 #5f9744 inset;
+  box-shadow:0 -2px 0 0 #5f9744 inset
+}
+
+table tr.never td{
+  background-color:transparent
+}
+
+table tbody {
+  border-style: solid;
+  border: 1px solid rgba(0,0,0,0.1)
+}
+
+table .num {
+  border-right: 1px solid rgba(0,0,0,0.1)
+}
+
+td.coverage em {
+  opacity: 0.5;
+}
+
+table td.coverage {
+  border-right: 1px solid rgba(0,0,0,0.1);
+  font-weight: bold;
+  text-align: center;
+}
+table.table-condensed pre {
+  background-color: transparent;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 11px;
+}
+div#files td {
+  padding: 0;
+  padding-left: 5px;
+}
+
+div#files td.num {
+  padding-right: 5px;
+}
+
+table.table-condensed {
+  font-size: 11px;
+}</style>
+  <div class="col-md-8 col-md-offset-2">
+    <h2>CalibreMD coverage - 50.57%</h2>
+    <div class="tabbable">
+      <ul class="nav nav-tabs" data-tabsetid="covr">
+        <li class="active">
+          <a href="#tab-covr-1" data-toggle="tab" data-value="Files">Files</a>
+        </li>
+        <li>
+          <a href="#tab-covr-2" data-toggle="tab" data-value="Source">Source</a>
+        </li>
+      </ul>
+      <div class="tab-content" data-tabsetid="covr">
+        <div class="tab-pane active" title="Files" data-value="Files" id="tab-covr-1">
+          <div class="datatables html-widget html-fill-item" id="htmlwidget-e45540285e71eb0856e4" style="width:100%;height:500px;"></div>
+          <script type="application/json" data-for="htmlwidget-e45540285e71eb0856e4">{"x":{"filter":"none","vertical":false,"fillContainer":false,"data":[["<a href=\"#\">R/CalibreMD.R<\/a>"],[432],[253],[127],[126],["1"],["50.20%"]],"container":"<table class=\"row-border\">\n  <thead>\n    <tr>\n      <th>File<\/th>\n      <th>Lines<\/th>\n      <th>Relevant<\/th>\n      <th>Covered<\/th>\n      <th>Missed<\/th>\n      <th>Hits / Line<\/th>\n      <th>Coverage<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"searching":false,"dom":"t","paging":false,"columnDefs":[{"targets":6,"createdCell":"function(td, cellData, rowData, row, col) {\n  var percent = cellData.replace(\"%\", \"\");\n  if (percent > 90) {\n    var grad = \"linear-gradient(90deg, #edfde7 \" + cellData + \", white \" + cellData + \")\";\n  } else if (percent > 75) {\n    var grad = \"linear-gradient(90deg, #f9ffe5 \" + cellData + \", white \" + cellData + \")\";\n  } else {\n    var grad = \"linear-gradient(90deg, #fcece9 \" + cellData + \", white \" + cellData + \")\";\n  }\n  $(td).css(\"background\", grad);\n}\n"},{"className":"dt-right","targets":[1,2,3,4]},{"name":"File","targets":0},{"name":"Lines","targets":1},{"name":"Relevant","targets":2},{"name":"Covered","targets":3},{"name":"Missed","targets":4},{"name":"Hits / Line","targets":5},{"name":"Coverage","targets":6}],"order":[],"autoWidth":false,"orderClasses":false},"callback":"function(table) {\ntable.on('click.dt', 'a', function() {\n  files = $('div#files div');\n  files.not('div.hidden').addClass('hidden');\n  id = $(this).text();\n  files.filter('div[id=\\'' + id + '\\']').removeClass('hidden');\n  $('ul.nav a[data-value=Source]').text(id).tab('show');\n});\n}"},"evals":["options.columnDefs.0.createdCell","callback"],"jsHooks":[]}</script>
+        </div>
+        <div class="tab-pane" title="Source" data-value="Source" id="tab-covr-2">
+          <div id="files">
+            <div id="R/CalibreMD.R" class="hidden">
+              <table class="table-condensed">
+                <tbody>
+                  <tr class="never">
+                    <td class="num">1</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Setup required packages for CalibreMD</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">2</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">3</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">setup_packages &lt;- function() {</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">4</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  library(dplyr, quietly = TRUE, warn.conflicts = FALSE)</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">5</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  invisible(lapply(c(</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">6</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "tidyr",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">7</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "stringr",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">8</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "tidytext",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">9</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "Matrix",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">10</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "RSQLite",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">11</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "DBI",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">12</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "xgboost",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">13</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "purrr"</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">14</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  ), requireNamespace, quietly = TRUE))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">15</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">16</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">17</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Find the metadata database file in the given directory</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">18</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param dataDir The directory containing the Calibre library</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">19</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return The path to the metadata.db file</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">20</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">21</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">find_md_db &lt;- function(dataDir){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">22</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  if (!dir.exists(dataDir)) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">23</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    stop(paste("Directory does not exist:", dataDir))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">24</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  }</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">25</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  paste0(dataDir, '/metadata.db')</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">26</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">27</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">28</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Load the EAV (Entity-Attribute-Value) data from the Calibre metadata database</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">29</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param dbname The path to the metadata.db file</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">30</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame containing the EAV data</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">31</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">32</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">load_eav &lt;- function(dbname){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">33</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  con &lt;- DBI::dbConnect(RSQLite::SQLite(), dbname = dbname)</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">34</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  result &lt;- DBI::dbGetQuery(con, "</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">35</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select id, 'title' as feature, title as value from books</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">36</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	union all</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">37</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select book as id, 'comment' as feature, text as value from comments</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">38</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	union all</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">39</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select al.book as id, 'author' as feature, a.name as value from books_authors_link al, authors a where al.author = a.id</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">40</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	union all</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">41</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select pl.book as id, 'publisher' as feature, p.name as value from books_publishers_link pl, publishers p where pl.publisher = p.id</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">42</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	union all</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">43</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select tl.book as id, 'tag' as feature, t.name as value from books_tags_link tl, tags t where tl.tag = t.id</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">44</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	union all</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">45</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select sl.book as id, 'series' as feature, s.name as value from books_series_link sl, series s where sl.series = s.id</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">46</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	union all</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">47</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	select book as id, 'rating' as feature, rating as value from books_ratings_link</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">48</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  	order by id;</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">49</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  ")</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">50</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  DBI::dbDisconnect(con)</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">51</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  result</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">52</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">53</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">54</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Explode text features into individual tokens</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">55</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">56</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame with text features exploded into tokens</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">57</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">58</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">explode_text_features &lt;- function(eav){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">59</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  text_feats &lt;- c("title", "comment") # features to tokenize</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">60</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">61</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  ## capture un-tokenized titles</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">62</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  original_titles &lt;- eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">63</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dplyr::filter(feature == "title") %&gt;%      # only the title rows</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">64</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dplyr::mutate(feature = "title_original")  # rename the attribute</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">65</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">66</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  text_values &lt;- eav %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">67</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature %in% text_feats) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">68</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(value) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">69</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    unlist(use.names = FALSE) %&gt;% # flatten to character vector</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">70</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    as.character()</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">71</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">72</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  train &lt;- tibble(text = text_values)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">73</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">74</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # learn: build the unigram vocabulary</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">75</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  vocab &lt;- train %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">76</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    tidytext::unnest_tokens(word, text, token = "words") %&gt;% # split to lowercase words</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">77</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct(word) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">78</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    pull(word)  # ← this extracts the column as a character vector</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">79</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">80</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # apply: function to tokenize new text with that vocab</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">81</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tokenize &lt;- function(txt) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">82</td>
+                    <td class="coverage">12<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    tibble(text = txt) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">83</td>
+                    <td class="coverage">12<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      tidytext::unnest_tokens(word, text, token = "words") %&gt;% # split/clean</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">84</td>
+                    <td class="coverage">12<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      filter(word %in% vocab) %&gt;% # keep known words</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">85</td>
+                    <td class="coverage">12<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      distinct(word) %&gt;% # "set" semantics</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">86</td>
+                    <td class="coverage">12<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      pull(word)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">87</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  }</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">88</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">89</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Tokenize and explode only the text features</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">90</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  token_rows &lt;- eav %&gt;% # original EAV table</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">91</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature %in% text_feats) %&gt;% # keep titles/comments</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">92</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(tokens = purrr::map(value, tokenize)) %&gt;% # list-column of tokens</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">93</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(id, feature, tokens) %&gt;%                  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">94</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    tidyr::unnest(tokens) %&gt;% # one row per token</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">95</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    rename(value = tokens) # align col-name</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">96</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">97</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Recombine with untouched rows (as eav)</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">98</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  dplyr::bind_rows(</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">99</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">100</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      dplyr::filter(!feature %in% text_feats), # untouched rows</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">101</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    original_titles, # full titles (title_original)</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">102</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    token_rows) %&gt;%  # exploded tokens</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">103</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dplyr::mutate(</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">104</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      id      = as.numeric(id),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">105</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      feature = as.character(feature),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">106</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      value   = as.character(value)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">107</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">108</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">109</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">110</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Get the count of tags per book</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">111</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">112</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame with book IDs and their tag counts</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">113</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">114</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_tag_counts &lt;- function(eav){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">115</td>
+                    <td class="coverage">3<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">116</td>
+                    <td class="coverage">3<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "tag") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">117</td>
+                    <td class="coverage">3<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct(id, value) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">118</td>
+                    <td class="coverage">3<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    count(id, name = "n_tags")</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">119</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">120</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">121</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Get a summary of books with their titles and tag counts</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">122</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">123</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame with book IDs, titles, and tag counts</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">124</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">125</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_book_summary &lt;- function(eav){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">126</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  eav %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">127</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "title_original") %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">128</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct(id, .keep_all = TRUE) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">129</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    transmute(id, title = value) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">130</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    full_join(get_tag_counts(eav), by = "id") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">131</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(n_tags = coalesce(n_tags, 0L),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">132</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">           title_length = nchar(title)) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">133</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(desc(title_length))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">134</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">135</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">136</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Get a summary of tags and their book counts</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">137</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">138</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame with tags and their book counts</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">139</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">140</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_tag_summary &lt;- function(eav){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">141</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">142</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "tag") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">143</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct(id, value) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">144</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    count(value, name = "book_count") %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">145</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(desc(book_count))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">146</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">147</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">148</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Get the titles of all books</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">149</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">150</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame with book IDs and titles</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">151</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">152</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_book_titles &lt;- function(eav){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">153</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  titles &lt;- eav %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">154</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "title_original") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">155</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(book_id = id, title = value) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">156</td>
+                    <td class="coverage">1<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct()</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">157</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">158</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">159</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Get the existing tags for each book</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">160</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">161</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A data frame with book IDs and their existing tags</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">162</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">163</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_existing_tags &lt;- function(eav) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">164</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  existing_tags &lt;- eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">165</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "tag") %&gt;%                 </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">166</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(book_id = id,</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">167</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">           existing_tag = value) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">168</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(book_id, existing_tag) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">169</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct() %&gt;%                               </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">170</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(book_id)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">171</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">172</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">173</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' Prepare the dataset for modeling</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">174</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @param eav The EAV data frame</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">175</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @return A list containing the feature matrix, tag matrix, and book features</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">176</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">#' @export</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">177</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">prep_dataset &lt;- function(eav){</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">178</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_tags &lt;- eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">179</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "tag") %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">180</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(tag = value) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">181</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(id, tag) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">182</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct() %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">183</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(id)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">184</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">185</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  valid_tags &lt;- book_tags %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">186</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    group_by(tag) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">187</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    summarize(n_books = n_distinct(id)) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">188</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(n_books &gt;= 10) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">189</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    pull(tag)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">190</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">191</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_tags &lt;- book_tags %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">192</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(tag %in% valid_tags)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">193</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">194</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_features &lt;- eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">195</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    # filter(feature != "tag") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">196</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(!feature %in% c("tag", "title_original")) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">197</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(feature = paste(feature, value, sep = ": ")) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">198</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(id, feature) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">199</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct() %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">200</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(id)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">201</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">202</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  common_ids &lt;- sort(intersect(book_tags$id, book_features$id))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">203</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">204</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_tags &lt;- book_tags %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">205</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(id %in% common_ids)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">206</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">207</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_features &lt;- book_features %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">208</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(id %in% common_ids)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">209</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">210</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Create index mappings for row (id) and columns (tag or feature)</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">211</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  id_levels &lt;- sort(unique(common_ids)) # ensures same order in both matrices</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">212</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">213</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Sparse tag matrix</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">214</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tag_levels &lt;- sort(unique(book_tags$tag))</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">215</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tag_matrix &lt;- Matrix::sparseMatrix(</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">216</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    i = match(book_tags$id, id_levels),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">217</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    j = match(book_tags$tag, tag_levels),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">218</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    x = 1L,</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">219</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dims = c(length(id_levels), length(tag_levels)),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">220</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dimnames = list(id_levels, tag_levels)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">221</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">222</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">223</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Sparse feature matrix</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">224</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  feature_levels &lt;- sort(unique(book_features$feature))</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">225</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  feature_matrix &lt;- Matrix::sparseMatrix(</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">226</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    i = match(book_features$id, id_levels),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">227</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    j = match(book_features$feature, feature_levels),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">228</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    x = 1L,</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">229</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dims = c(length(id_levels), length(feature_levels)),</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">230</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dimnames = list(id_levels, feature_levels)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">231</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">232</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">233</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  list(</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">234</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    X = feature_matrix,</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">235</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    Y = tag_matrix,</pre>
+                    </td>
+                  </tr>
+                  <tr class="covered">
+                    <td class="num">236</td>
+                    <td class="coverage">2<em>x</em></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    book_features = book_features</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">237</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">238</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">239</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">240</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">train_models &lt;- function(dataset){</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">241</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  requireNamespace("xgboost", quietly = TRUE)</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">242</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  X &lt;- dataset$X</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">243</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  Y &lt;- dataset$Y</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">244</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  models &lt;- list()</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">245</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  for (tag in colnames(Y)) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">246</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    # Extract label vector and convert to numeric</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">247</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    y &lt;- as.numeric(Y[, tag])</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">248</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    # Construct DMatrix using sparse feature matrix</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">249</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    dtrain &lt;- xgboost::xgb.DMatrix(data = X, label = y)</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">250</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    models[[tag]] &lt;- xgboost::xgboost(</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">251</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      data = dtrain,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">252</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      objective = "binary:logistic",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">253</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      eval_metric = "logloss",</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">254</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      nrounds = 50,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">255</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      verbose = 0</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">256</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">257</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  }</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">258</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  models</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">259</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">260</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">261</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">predict_tags &lt;- function(models, dataset){</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">262</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  requireNamespace("xgboost", quietly = TRUE)</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">263</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_features &lt;- dataset$book_features</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">264</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Assume predict_ids and book_features are defined</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">265</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  predict_ids &lt;- unique(book_features$id)  # books to predict for</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">266</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">267</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Add row_index to book_features dynamically</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">268</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_features &lt;- book_features %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">269</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(row_index = match(id, predict_ids))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">270</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">271</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Initialize predictions output</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">272</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  pred_probs_new &lt;- data.frame(book_id = predict_ids)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">273</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">274</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Loop over all models/tags</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">275</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  for (tag in names(models)) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">276</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    model &lt;- models[[tag]]</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">277</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    used_features &lt;- model$feature_names</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">278</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">279</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    # Align features to model-specific ones</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">280</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filtered_book_features &lt;- book_features %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">281</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      filter(feature %in% used_features) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">282</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      mutate(col_index = match(feature, used_features)) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">283</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      filter(!is.na(row_index) &amp; !is.na(col_index))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">284</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">285</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    # Build sparse matrix</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">286</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    new_feature_matrix &lt;- Matrix::sparseMatrix(</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">287</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      i = filtered_book_features$row_index,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">288</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      j = filtered_book_features$col_index,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">289</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      x = 1L,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">290</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      dims = c(length(predict_ids), length(used_features)),</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">291</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      dimnames = list(NULL, used_features)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">292</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">293</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">294</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    # Predict and store</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">295</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    preds &lt;- stats::predict(model, newdata = new_feature_matrix)</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">296</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    pred_probs_new[[tag]] &lt;- preds</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">297</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  }</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">298</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">299</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  pred_probs_new</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">300</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">301</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">302</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">threshold_predictions &lt;- function(pred_probs, book_id, threshold = 0.5) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">303</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  my_row &lt;- pred_probs %&gt;% filter(as.character(book_id) == as.character(!!book_id))</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">304</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  if (nrow(my_row) == 0) return(character(0))</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">305</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tag_cols &lt;- setdiff(colnames(my_row), "book_id")</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">306</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tag_cols[as.numeric(my_row[1, tag_cols]) &gt; threshold]</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">307</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">308</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">309</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_top_n_labels &lt;- function(pred_probs, book_id, n = 2) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">310</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  my_row &lt;- pred_probs %&gt;% filter(as.character(book_id) == as.character(!!book_id))</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">311</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  if (nrow(my_row) == 0) return(character(0))</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">312</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tag_cols &lt;- setdiff(colnames(my_row), "book_id")</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">313</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tag_scores &lt;- as.numeric(my_row[1, tag_cols])</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">314</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  names(tag_scores) &lt;- tag_cols</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">315</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  top_tags &lt;- names(sort(tag_scores, decreasing = TRUE))[1:n]</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">316</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  return(top_tags)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">317</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">318</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">319</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_label_probabilities &lt;- function(predictions_probs){</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">320</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  pred_long_all &lt;- predictions_probs %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">321</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    tidyr::pivot_longer(-book_id, names_to = "tag", values_to = "prob")</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">322</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">323</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">324</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_recommended_add &lt;- function(eav, pred_long_all, add_threshold) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">325</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  pred_long_add &lt;- pred_long_all %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">326</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(prob &gt; add_threshold)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">327</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">328</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 1: Load existing tags</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">329</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_tags &lt;- eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">330</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "tag") %&gt;%                 </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">331</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(tag = value) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">332</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(id, tag) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">333</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct() %&gt;%                               </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">334</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(id)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">335</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">336</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  existing_tags &lt;- get_existing_tags(eav)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">337</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">338</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 2: Remove predicted tags already present</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">339</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  new_tags_df &lt;- pred_long_add %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">340</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    anti_join(existing_tags, by = c("book_id", "tag" = "existing_tag"))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">341</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">342</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 3: Remove general predicted tags if a more specific one exists</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">343</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Join predictions with all existing tags for the same book</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">344</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  filtered_tags_df &lt;- new_tags_df %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">345</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    left_join(existing_tags, by = "book_id") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">346</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    group_by(book_id, tag) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">347</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(!any(stringr::str_starts(existing_tag, paste0(tag, ".")))) %&gt;%  # keep tag only if no more specific one exists</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">348</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    ungroup() %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">349</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(book_id, tag) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">350</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct()</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">351</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">352</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 4: Aggregate recommendations</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">353</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  recommended_tags_df &lt;- filtered_tags_df %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">354</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    group_by(book_id) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">355</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    summarize(recommended_tags = paste(tag, collapse = ", "), .groups = "drop")</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">356</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">357</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 5: Join with titles</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">358</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  titles &lt;- get_book_titles(eav)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">359</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">360</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  final_addition_recommendations &lt;- recommended_tags_df %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">361</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    left_join(titles, by = "book_id") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">362</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(book_id, title, recommended_tags)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">363</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">364</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">365</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">get_recommended_remove &lt;- function(eav, pred_long_all, add_threshold = 0.05) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">366</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 1: Load existing tags</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">367</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_tags &lt;- eav %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">368</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(feature == "tag") %&gt;%                 </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">369</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(tag = value) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">370</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(id, tag) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">371</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    distinct() %&gt;%                               </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">372</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(id)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">373</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">374</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  book_tags_clean &lt;- book_tags %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">375</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(tag = stringr::str_trim(tag)) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">376</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    rename(book_id = id)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">377</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">378</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  pred_long_clean &lt;- pred_long_all %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">379</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    mutate(tag = stringr::str_trim(tag))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">380</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">381</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  joined_tags &lt;- book_tags_clean %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">382</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    inner_join(pred_long_clean, by = c("book_id", "tag"))</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">383</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">384</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  tags_to_remove &lt;- joined_tags %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">385</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(prob &lt; remove_threshold) %&gt;%  # or whatever threshold</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">386</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    group_by(book_id) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">387</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    summarize(tags_to_review = paste(tag, collapse = ", "), .groups = "drop")</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">388</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">389</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 4: Add book titles</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">390</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  titles &lt;- get_book_titles(eav)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">391</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">392</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  final_removal_recommendations &lt;- tags_to_remove %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">393</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    left_join(titles, by = "book_id") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">394</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(book_id, title, tags_to_review)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">395</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">396</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r"></pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">397</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">suggest_tag_additions &lt;- function(eav,</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">398</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">                                  predictions   = pred_long_all,</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">399</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">                                  tag_name,</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">400</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">                                  prob_min      = 0) {</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">401</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # basic validation ----------------------------------------------------</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">402</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  stopifnot(</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">403</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    all(c("book_id", "tag", "prob") %in% names(predictions)),</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">404</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    "prob_min must be in [0,1]" = prob_min &gt;= 0 &amp; prob_min &lt;= 1</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">405</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  )</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">406</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">407</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 1: Get book titles</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">408</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  titles &lt;- get_book_titles(eav)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">409</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">410</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # Step 2 Get existing tags</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">411</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  existing_tags &lt;- get_existing_tags(eav)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">412</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">413</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # ── build a regex that matches any descendant tag of tag_name ─────────</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">414</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  # e.g. "Supply Chain"   →  "^Supply Chain\\."   (note the escaped dot)</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">415</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  descendant_regex &lt;- paste0("^", stringr::str_replace_all(tag_name, "[.]", "\\\\."), "\\.")</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">416</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">417</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">  predictions %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">418</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    filter(tag == tag_name,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">419</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">           prob &gt;= prob_min) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">420</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    anti_join(existing_tags,</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">421</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">              by = c("book_id", </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">422</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">                     "tag" = "existing_tag")) %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">423</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    anti_join(</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">424</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      existing_tags %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">425</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">        filter(stringr::str_detect(existing_tag, descendant_regex)) %&gt;% # keep only the descendants</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">426</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">        distinct(book_id), # we just need the IDs</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">427</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">      by = "book_id"</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">428</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    ) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">429</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    left_join(titles, by = "book_id") %&gt;%</pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">430</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    arrange(desc(prob)) %&gt;% </pre>
+                    </td>
+                  </tr>
+                  <tr class="missed">
+                    <td class="num">431</td>
+                    <td class="coverage">!</td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">    select(book_id, title, tag, prob)</pre>
+                    </td>
+                  </tr>
+                  <tr class="never">
+                    <td class="num">432</td>
+                    <td class="coverage"></td>
+                    <td class="col-sm-12">
+                      <pre class="language-r">}</pre>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <script>$('div#files pre').each(function(i, block) {
+    hljs.highlightBlock(block);
+});</script>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

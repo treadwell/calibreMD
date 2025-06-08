@@ -1,3 +1,5 @@
+#' Setup required packages for CalibreMD
+#' @export
 setup_packages <- function() {
   library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
   invisible(lapply(c(
@@ -12,6 +14,10 @@ setup_packages <- function() {
   ), requireNamespace, quietly = TRUE))
 }
 
+#' Find the metadata database file in the given directory
+#' @param dataDir The directory containing the Calibre library
+#' @return The path to the metadata.db file
+#' @export
 find_md_db <- function(dataDir){
   if (!dir.exists(dataDir)) {
     stop(paste("Directory does not exist:", dataDir))
@@ -19,8 +25,12 @@ find_md_db <- function(dataDir){
   paste0(dataDir, '/metadata.db')
 }
 
+#' Load the EAV (Entity-Attribute-Value) data from the Calibre metadata database
+#' @param dbname The path to the metadata.db file
+#' @return A data frame containing the EAV data
+#' @export
 load_eav <- function(dbname){
-  con <- DBI::dbConnect(RSQLite::SQLite(), dbname = md_db)
+  con <- DBI::dbConnect(RSQLite::SQLite(), dbname = dbname)
   result <- DBI::dbGetQuery(con, "
   	select id, 'title' as feature, title as value from books
   	union all
@@ -41,6 +51,10 @@ load_eav <- function(dbname){
   result
 }
 
+#' Explode text features into individual tokens
+#' @param eav The EAV data frame
+#' @return A data frame with text features exploded into tokens
+#' @export
 explode_text_features <- function(eav){
   text_feats <- c("title", "comment") # features to tokenize
   
@@ -68,7 +82,7 @@ explode_text_features <- function(eav){
     tibble(text = txt) %>%
       tidytext::unnest_tokens(word, text, token = "words") %>% # split/clean
       filter(word %in% vocab) %>% # keep known words
-      distinct(word) %>% # “set” semantics
+      distinct(word) %>% # "set" semantics
       pull(word)
   }
   
@@ -84,8 +98,8 @@ explode_text_features <- function(eav){
   dplyr::bind_rows(
     eav %>% 
       dplyr::filter(!feature %in% text_feats), # untouched rows
-      original_titles, # full titles (title_original)
-      token_rows) %>%  # exploded tokens
+    original_titles, # full titles (title_original)
+    token_rows) %>%  # exploded tokens
     dplyr::mutate(
       id      = as.numeric(id),
       feature = as.character(feature),
@@ -93,6 +107,10 @@ explode_text_features <- function(eav){
     )
 }
 
+#' Get the count of tags per book
+#' @param eav The EAV data frame
+#' @return A data frame with book IDs and their tag counts
+#' @export
 get_tag_counts <- function(eav){
   eav %>% 
     filter(feature == "tag") %>%
@@ -100,17 +118,25 @@ get_tag_counts <- function(eav){
     count(id, name = "n_tags")
 }
 
+#' Get a summary of books with their titles and tag counts
+#' @param eav The EAV data frame
+#' @return A data frame with book IDs, titles, and tag counts
+#' @export
 get_book_summary <- function(eav){
   eav %>%
     filter(feature == "title_original") %>% 
     distinct(id, .keep_all = TRUE) %>% 
     transmute(id, title = value) %>% 
-    full_join(tag_counts, by = "id") %>%
+    full_join(get_tag_counts(eav), by = "id") %>%
     mutate(n_tags = coalesce(n_tags, 0L),
            title_length = nchar(title)) %>%
     arrange(desc(title_length))
 }
 
+#' Get a summary of tags and their book counts
+#' @param eav The EAV data frame
+#' @return A data frame with tags and their book counts
+#' @export
 get_tag_summary <- function(eav){
   eav %>% 
     filter(feature == "tag") %>%
@@ -119,6 +145,10 @@ get_tag_summary <- function(eav){
     arrange(desc(book_count))
 }
 
+#' Get the titles of all books
+#' @param eav The EAV data frame
+#' @return A data frame with book IDs and titles
+#' @export
 get_book_titles <- function(eav){
   titles <- eav %>%
     filter(feature == "title_original") %>%
@@ -126,6 +156,10 @@ get_book_titles <- function(eav){
     distinct()
 }
 
+#' Get the existing tags for each book
+#' @param eav The EAV data frame
+#' @return A data frame with book IDs and their existing tags
+#' @export
 get_existing_tags <- function(eav) {
   existing_tags <- eav %>% 
     filter(feature == "tag") %>%                 
@@ -136,6 +170,10 @@ get_existing_tags <- function(eav) {
     arrange(book_id)
 }
 
+#' Prepare the dataset for modeling
+#' @param eav The EAV data frame
+#' @return A list containing the feature matrix, tag matrix, and book features
+#' @export
 prep_dataset <- function(eav){
   book_tags <- eav %>% 
     filter(feature == "tag") %>% 
@@ -197,7 +235,6 @@ prep_dataset <- function(eav){
     Y = tag_matrix,
     book_features = book_features
   )
-  
 }
 
 train_models <- function(dataset){
@@ -296,8 +333,6 @@ get_recommended_add <- function(eav, pred_long_all, add_threshold) {
     distinct() %>%                               
     arrange(id)
   
-  
-  
   existing_tags <- get_existing_tags(eav)
   
   # Step 2: Remove predicted tags already present
@@ -327,7 +362,7 @@ get_recommended_add <- function(eav, pred_long_all, add_threshold) {
     select(book_id, title, recommended_tags)
 }
 
-get_recommended_remove <- function(eav, pred_long_all, add_threshold = 0.05) {
+get_recommended_remove <- function(eav, pred_long_all, remove_threshold = 0.05) {
   # Step 1: Load existing tags
   book_tags <- eav %>% 
     filter(feature == "tag") %>%                 
