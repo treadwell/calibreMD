@@ -2,7 +2,7 @@
 % Please edit documentation in R/CalibreMD.R
 \name{get_recommended_remove}
 \alias{get_recommended_remove}
-\title{Get recommended tags to remove}
+\title{Get books to remove a specific tag from}
 \usage{
 get_recommended_remove(eav, pred_long_all, remove_threshold = 0.05)
 }
@@ -17,5 +17,5 @@ get_recommended_remove(eav, pred_long_all, remove_threshold = 0.05)
 A data frame of recommended tags to remove
 }
 \description{
-Get recommended tags to remove
+Get books to remove a specific tag from
 }

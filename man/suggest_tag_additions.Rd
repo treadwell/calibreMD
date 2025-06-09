@@ -2,7 +2,7 @@
 % Please edit documentation in R/CalibreMD.R
 \name{suggest_tag_additions}
 \alias{suggest_tag_additions}
-\title{Suggest tag additions for a specific tag}
+\title{Get books to add a specific tag to}
 \usage{
 suggest_tag_additions(eav, predictions = pred_long_all, tag_name, prob_min = 0)
 }
@@ -19,5 +19,5 @@ suggest_tag_additions(eav, predictions = pred_long_all, tag_name, prob_min = 0)
 A data frame of suggested tag additions
 }
 \description{
-Suggest tag additions for a specific tag
+Get books to add a specific tag to
 }

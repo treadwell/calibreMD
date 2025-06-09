@@ -361,29 +361,15 @@ display: none;
 </div>
 <div id="load-data-from-sqlite-to-eav-table" class="section level1">
 <h1>Load data from SQLite to EAV table</h1>
-<pre class="r"><code>eav &lt;- md_db %&gt;% 
-  load_eav() %&gt;% 
-  explode_text_features()</code></pre>
-<pre><code>## Warning: Column `value`: mixed type, first seen values of type string, coercing
-## other values of type integer</code></pre>
 <div id="explore-data" class="section level2">
 <h2>Explore data</h2>
-<pre class="r"><code>tag_counts &lt;- eav %&gt;% get_tag_counts()
-book_summary &lt;- eav %&gt;% get_book_summary()
-tag_summary &lt;- eav %&gt;% get_tag_summary()</code></pre>
 </div>
 </div>
 <div id="train-model" class="section level1">
 <h1>Train model</h1>
-<pre class="r"><code>dataset &lt;- prep_dataset(eav)
-models &lt;- train_models(dataset)</code></pre>
 </div>
 <div id="predict-on-all-data" class="section level1">
 <h1>Predict on all data</h1>
-<pre class="r"><code>predictions_probs &lt;- predict_tags(models, dataset)
-predictions_discrete &lt;- threshold_predictions(predictions_probs, book_id = 900, threshold = 0.9)
-top_n_labels &lt;- get_top_n_labels(predictions_probs, book_id = 900, n = 5)
-print(top_n_labels)</code></pre>
 <pre><code>## [1] &quot;Computer Science.Theory of Computation&quot;
 ## [2] &quot;Mathematics&quot;                           
 ## [3] &quot;Computers&quot;                             
@@ -391,28 +377,37 @@ print(top_n_labels)</code></pre>
 ## [5] &quot;Information Technology&quot;</code></pre>
 <div id="get-full-set-of-labels-from-threshold" class="section level2">
 <h2>Get full set of labels from threshold</h2>
-<pre class="r"><code>pred_long_all &lt;- get_label_probabilities(predictions_probs)</code></pre>
 </div>
 <div id="find-tags-that-should-be-added" class="section level2">
 <h2>find tags that should be added</h2>
-<pre class="r"><code>add_threshold &lt;- 0.8
-
-final_addition_recommendations &lt;- get_recommended_add(eav, pred_long_all, add_threshold)</code></pre>
 </div>
 <div id="find-tags-that-should-be-deleted" class="section level2">
 <h2>find tags that should be deleted</h2>
-<pre class="r"><code>remove_threshold &lt;- 0.05
-
-final_removal_recommendations &lt;- get_recommended_remove (eav, pred_long_all, remove_threshold)</code></pre>
 </div>
 <div id="given-a-tag-what-books-should-it-be-in" class="section level2">
 <h2>given a tag, what books should it be in?</h2>
-<pre class="r"><code>tag_name &lt;- &quot;@Shaelyn Bagley&quot;
-
-final_single_tag_additions &lt;- suggest_tag_additions(eav, pred_long_all, tag_name, prob_min = 0.5)
-print(final_single_tag_additions)</code></pre>
 <pre><code>## # A tibble: 0 × 4
 ## # ℹ 4 variables: book_id &lt;dbl&gt;, title &lt;chr&gt;, tag &lt;chr&gt;, prob &lt;dbl&gt;</code></pre>
+</div>
+<div id="get-recommendations-for-a-specific-book" class="section level2">
+<h2>Get recommendations for a specific book</h2>
+<pre><code>## Book Title: LJB Estate P&amp;L 06-30-2015</code></pre>
+<pre><code>## Current Tags:
+##  -  Ken Brooks.Finance
+## -  LJB.Estate
+## -  @Lois J Brooks</code></pre>
+<pre><code>## Recommended New Tags:</code></pre>
+<table>
+<thead>
+<tr class="header">
+<th align="right">book_id</th>
+<th align="left">tag</th>
+<th align="right">prob</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table>
 </div>
 </div>
 

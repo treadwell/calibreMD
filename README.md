@@ -66,6 +66,12 @@ to_review <- get_recommended_remove(metadata, predictions, remove_threshold = 0.
 
 # Get suggestions for a specific tag
 suggestions <- suggest_tag_additions(metadata, predictions, tag_name = "@your_tag", prob_min = 0.5)
+
+# Get recommendations for a specific book
+book_recommendations <- recommend_tags_for_book(metadata, predictions, book_id = 123, threshold = 0.8)
+print(book_recommendations$title)  # Show book title
+print(book_recommendations$existing_tags)  # Show current tags
+print(book_recommendations$recommendations)  # Show recommended new tags with probabilities
 ```
 
 ## Development
