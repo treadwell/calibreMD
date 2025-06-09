@@ -492,43 +492,39 @@ recommend_tags_for_book <- function(eav, predictions_probs, book_id, threshold =
     stop(sprintf("Book ID %s not found in the dataset", book_id))
   }
   
-  # Get book title
-  title <- eav %>%
-    filter(feature == "title_original", id == book_id) %>%
-    pull(value) %>%
-    unique()
+  # Get book title using existing function
+  title <- get_book_titles(eav) %>%
+    filter(book_id == !!book_id) %>%
+    pull(title)
   
-  # Get existing tags
-  existing_tags <- eav %>%
-    filter(feature == "tag", id == book_id) %>%
-    pull(value) %>%
-    unique()
+  # Get existing tags using existing function
+  existing_tags <- get_existing_tags(eav) %>%
+    filter(book_id == !!book_id) %>%
+    pull(existing_tag)
   
-  # Get predictions for this book
-  pred_cols <- setdiff(names(predictions_probs), "book_id")
-  if (length(pred_cols) == 0) {
-    # Handle case with no predictions
+  # Handle empty predictions case
+  if (ncol(predictions_probs) <= 1) {
     return(list(
       title = title,
       existing_tags = existing_tags,
       recommendations = tibble::tibble(
         tag = character(0),
-        probability = numeric(0)
+        prob = numeric(0)
       )
     ))
   }
   
-  book_predictions <- predictions_probs %>%
-    filter(book_id == !!book_id) %>%
-    tidyr::pivot_longer(all_of(pred_cols), names_to = "tag", values_to = "probability") %>%
-    filter(probability >= threshold) %>%
-    filter(!tag %in% existing_tags) %>%
-    arrange(desc(probability))
+  # Get all predictions in long format using existing function
+  recommendations <- get_label_probabilities(predictions_probs) %>%
+    filter(book_id == !!book_id,
+           prob >= threshold,
+           !tag %in% existing_tags) %>%
+    arrange(desc(prob))
   
-  # Return results with title
+  # Return results
   list(
     title = title,
     existing_tags = existing_tags,
-    recommendations = book_predictions
+    recommendations = recommendations
   )
 }
