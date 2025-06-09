@@ -20,14 +20,18 @@ test_that("recommend_tags_for_book works correctly", {
   
   # Test basic functionality
   result <- recommend_tags_for_book(test_eav, test_predictions, book_id = 1)
-  expect_type(result, "list")
-  expect_equal(result$title, "Test Book")
-  expect_equal(sort(result$existing_tags), sort(c("existing_tag1", "existing_tag2")))
-  expect_equal(nrow(result$recommendations), 2)  # Should only include tag1 and tag2
+  expect_s3_class(result, "data.frame")
+  expect_equal(colnames(result), c("book_id", "tag", "prob"))
+  expect_equal(nrow(result), 2)  # Should only include tag1 and tag2 (not existing tags)
+  expect_true(all(result$book_id == 1))
+  expect_true(all(result$prob >= 0.8))  # Default threshold
+  expect_true(all(result$tag %in% c("tag1", "tag2")))  # Only new tags
   
   # Test threshold filtering
   high_threshold <- recommend_tags_for_book(test_eav, test_predictions, book_id = 1, threshold = 0.88)
-  expect_equal(nrow(high_threshold$recommendations), 1)  # Should only include tag1
+  expect_equal(nrow(high_threshold), 1)  # Should only include tag1
+  expect_true(all(high_threshold$prob >= 0.88))
+  expect_equal(high_threshold$tag, "tag1")
   
   # Test error for non-existent book
   expect_error(
@@ -38,8 +42,8 @@ test_that("recommend_tags_for_book works correctly", {
   # Test with book that has no existing tags
   test_eav_no_tags <- test_eav %>% filter(id == 1, feature != "tag")
   result_no_tags <- recommend_tags_for_book(test_eav_no_tags, test_predictions, book_id = 1)
-  expect_equal(length(result_no_tags$existing_tags), 0)
-  expect_equal(nrow(result_no_tags$recommendations), 4)  # Should include all tags
+  expect_equal(nrow(result_no_tags), 4)  # Should include all predicted tags
+  expect_true(all(result_no_tags$prob >= 0.8))
 })
 
 test_that("recommend_tags_for_book handles edge cases", {
@@ -52,10 +56,7 @@ test_that("recommend_tags_for_book handles edge cases", {
   empty_predictions <- tibble::tibble(book_id = 1)
   
   result <- recommend_tags_for_book(test_eav, empty_predictions, book_id = 1)
-  expect_equal(nrow(result$recommendations), 0)
-  
-  # Test with no title
-  test_eav_no_title <- test_eav %>% filter(feature != "title_original")
-  result_no_title <- recommend_tags_for_book(test_eav_no_title, empty_predictions, book_id = 1)
-  expect_equal(result_no_title$title, character(0))
+  expect_equal(nrow(result), 0)
+  expect_s3_class(result, "data.frame")
+  expect_equal(colnames(result), c("book_id", "tag", "prob"))
 }) 
