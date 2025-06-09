@@ -424,7 +424,7 @@ get_recommended_add <- function(eav, pred_long_all, add_threshold) {
   join_with_titles(recommended_tags_df, eav, tag_col = "recommended_tags")
 }
 
-#' Get recommended tags to remove
+#' Get books to remove a specific tag from
 #' @param eav EAV data frame
 #' @param pred_long_all Predictions in long format
 #' @param remove_threshold Threshold for removing tags
@@ -447,7 +447,7 @@ get_recommended_remove <- function(eav, pred_long_all, remove_threshold = 0.05) 
   join_with_titles(tags_to_remove, eav, tag_col = "tags_to_review")
 }
 
-#' Suggest tag additions for a specific tag
+#' Get books to add a specific tag to
 #' @param eav EAV data frame
 #' @param predictions Predictions in long format
 #' @param tag_name Tag to suggest additions for
@@ -476,4 +476,59 @@ suggest_tag_additions <- function(eav, predictions = pred_long_all, tag_name, pr
     left_join(titles, by = "book_id") %>%
     arrange(desc(prob)) %>%
     select(book_id, title, tag, prob)
+}
+
+#' Recommend new tags for a specific book
+#' @param eav The EAV data frame
+#' @param predictions_probs Prediction probabilities from predict_tags
+#' @param book_id The ID of the book to get recommendations for
+#' @param threshold Probability threshold for recommendations (default 0.8)
+#' @return A list containing title, existing_tags, and recommendations
+#' @export
+recommend_tags_for_book <- function(eav, predictions_probs, book_id, threshold = 0.8) {
+  # Validate book exists
+  book_exists <- book_id %in% unique(eav$id)
+  if (!book_exists) {
+    stop(sprintf("Book ID %s not found in the dataset", book_id))
+  }
+  
+  # Get book title
+  title <- eav %>%
+    filter(feature == "title_original", id == book_id) %>%
+    pull(value) %>%
+    unique()
+  
+  # Get existing tags
+  existing_tags <- eav %>%
+    filter(feature == "tag", id == book_id) %>%
+    pull(value) %>%
+    unique()
+  
+  # Get predictions for this book
+  pred_cols <- setdiff(names(predictions_probs), "book_id")
+  if (length(pred_cols) == 0) {
+    # Handle case with no predictions
+    return(list(
+      title = title,
+      existing_tags = existing_tags,
+      recommendations = tibble::tibble(
+        tag = character(0),
+        probability = numeric(0)
+      )
+    ))
+  }
+  
+  book_predictions <- predictions_probs %>%
+    filter(book_id == !!book_id) %>%
+    tidyr::pivot_longer(all_of(pred_cols), names_to = "tag", values_to = "probability") %>%
+    filter(probability >= threshold) %>%
+    filter(!tag %in% existing_tags) %>%
+    arrange(desc(probability))
+  
+  # Return results with title
+  list(
+    title = title,
+    existing_tags = existing_tags,
+    recommendations = book_predictions
+  )
 }
