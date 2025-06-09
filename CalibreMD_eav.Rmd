@@ -101,18 +101,27 @@ print(final_single_tag_additions)
 # Get a sample book ID from the dataset
 sample_book_id <- eav %>%
   filter(feature == "title_original") %>%
-  slice(1) %>%
+  slice(900) %>%
   pull(id)
 
+# Get book title
+title <- get_book_titles(eav) %>%
+  filter(book_id == sample_book_id) %>%
+  pull(title)
+
+# Get current tags
+current_tags <- get_existing_tags(eav) %>%
+  filter(book_id == sample_book_id) %>%
+  pull(existing_tag)
+
 # Get recommendations for this book
-book_recs <- recommend_tags_for_book(eav, predictions_probs, book_id = sample_book_id)
+recommendations <- recommend_tags_for_book(eav, predictions_probs, book_id = sample_book_id)
 
 # Display results
-cat("Book Title:", book_recs$title, "\n\n")
-cat("Current Tags:\n", paste("- ", book_recs$existing_tags, collapse = "\n"), "\n\n")
+cat("Book Title:", title, "\n\n")
+cat("Current Tags:\n", paste("- ", current_tags, collapse = "\n"), "\n\n")
 cat("Recommended New Tags:\n")
-book_recs$recommendations %>%
-  arrange(desc(prob)) %>%
+recommendations %>%
   mutate(prob = round(prob, 3)) %>%
   knitr::kable()
 ```

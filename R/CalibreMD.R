@@ -483,7 +483,7 @@ suggest_tag_additions <- function(eav, predictions = pred_long_all, tag_name, pr
 #' @param predictions_probs Prediction probabilities from predict_tags
 #' @param book_id The ID of the book to get recommendations for
 #' @param threshold Probability threshold for recommendations (default 0.8)
-#' @return A list containing title, existing_tags, and recommendations
+#' @return A data frame with columns book_id, tag, and prob
 #' @export
 recommend_tags_for_book <- function(eav, predictions_probs, book_id, threshold = 0.8) {
   # Validate book exists
@@ -492,39 +492,25 @@ recommend_tags_for_book <- function(eav, predictions_probs, book_id, threshold =
     stop(sprintf("Book ID %s not found in the dataset", book_id))
   }
   
-  # Get book title using existing function
-  title <- get_book_titles(eav) %>%
-    filter(book_id == !!book_id) %>%
-    pull(title)
+  # Handle empty predictions case
+  if (ncol(predictions_probs) <= 1) {
+    return(tibble::tibble(
+      book_id = numeric(0),
+      tag = character(0),
+      prob = numeric(0)
+    ))
+  }
   
   # Get existing tags using existing function
   existing_tags <- get_existing_tags(eav) %>%
     filter(book_id == !!book_id) %>%
     pull(existing_tag)
   
-  # Handle empty predictions case
-  if (ncol(predictions_probs) <= 1) {
-    return(list(
-      title = title,
-      existing_tags = existing_tags,
-      recommendations = tibble::tibble(
-        tag = character(0),
-        prob = numeric(0)
-      )
-    ))
-  }
-  
-  # Get all predictions in long format using existing function
-  recommendations <- get_label_probabilities(predictions_probs) %>%
+  # Get predictions and filter
+  get_label_probabilities(predictions_probs) %>%
     filter(book_id == !!book_id,
            prob >= threshold,
            !tag %in% existing_tags) %>%
-    arrange(desc(prob))
-  
-  # Return results
-  list(
-    title = title,
-    existing_tags = existing_tags,
-    recommendations = recommendations
-  )
+    arrange(desc(prob)) %>%
+    select(book_id, tag, prob)  # Ensure consistent column order
 }
