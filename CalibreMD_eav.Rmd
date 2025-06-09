@@ -112,8 +112,8 @@ cat("Book Title:", book_recs$title, "\n\n")
 cat("Current Tags:\n", paste("- ", book_recs$existing_tags, collapse = "\n"), "\n\n")
 cat("Recommended New Tags:\n")
 book_recs$recommendations %>%
-  arrange(desc(probability)) %>%
-  mutate(probability = round(probability, 3)) %>%
+  arrange(desc(prob)) %>%
+  mutate(prob = round(prob, 3)) %>%
   knitr::kable()
 ```
 
