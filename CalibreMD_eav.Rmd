@@ -72,7 +72,7 @@ pred_long_all <- get_label_probabilities(predictions_probs)
 ## find tags that should be added
 
 ```{r}
-add_threshold <- 0.8
+add_threshold <- 0.75
 
 final_addition_recommendations <- get_recommended_add(eav, pred_long_all, add_threshold)
 ```
@@ -81,9 +81,9 @@ final_addition_recommendations <- get_recommended_add(eav, pred_long_all, add_th
 ## find tags that should be deleted
 
 ```{r}
-remove_threshold <- 0.05
+remove_threshold <- 0.01
 
-final_removal_recommendations <- get_recommended_remove (eav, pred_long_all, remove_threshold)
+final_removal_recommendations <- get_recommended_remove(eav, pred_long_all, remove_threshold)
 ```
 
 ## given a tag, what books should it be in?
@@ -99,11 +99,170 @@ print(final_single_tag_additions)
 
 ```{r}
 # Get a sample book ID from the dataset
-sample_book_id <- 900
+sample_book_id <- 17954
+
 
 # Get recommendations for this book
 recommendations <- recommend_tags_for_book(eav, predictions_probs, book_id = sample_book_id)
 
 print(recommendations)
 ```
+# Spectral Analysis
+
+Goals:
+1. Recommend existing tags for a set of books (and those that should be removed)
+2. Discover book groupings and recommend tags that describe them.
+
+Process for #1:
+
+1. Form a graph based on existing tags
+  a. build the stars (connect books with the same tag)
+  b. connect star centers to a random other star centers for different tags (can experiment with this)
+2. Spectral hashing to get a perfect code book for existing tag graph
+3. Use k binary classifiers to learn the codebook (xgboost, etc.) (maps any book to codebook space)
+4. Encode a book and find nearest neighbors - use those to indicate what tags should be
+  a. Assume the book has the same tags as its nearest neighbor
+  b. Use distance to other clusters for multi-tags
+
+Process for #2:
+
+1. Using encoders from step 1 encode all unseen books
+2. Scan through all of possible clustering and see what's grouped (silhouette coeff?)
+  a. One will likely hit the way we've tagged with unseen or misclassified books as noise
+  b. Other clusters will look good (subsets, supersets, or other)
+3. Find representative features for the clusters (chi-Sq or mutual information)
+
+
+```{r}
+tag_membership <- eav %>% 
+  filter(feature == "tag") %>% 
+  mutate(tag = value) %>% 
+  select(id, tag) %>% 
+  group_by(tag) %>% 
+  summarize(membership = list(id), .groups = "drop")
+
+# TODO: produce a list of pairs encoding a star graph over these tags. Pick a random book id from each membership list and produce a pair connecting that book id to every other book id in the membership list. This needs to be symmetric, when emitting a pair [a, b] also emit [b, a]
+
+# Step 1: Create star graph + record center nodes per tag
+star_graph_df <- tag_membership %>%
+  mutate(center = purrr::map_int(membership, ~ sample(.x, 1))) %>%
+  mutate(pairs = purrr::map2(membership, center, function(ids, center) {
+    others <- setdiff(ids, center)
+    if (length(others) == 0) return(tibble(from = integer(), to = integer()))
+    bind_rows(
+      tibble(from = center, to = others),
+      tibble(from = others, to = center)
+    )
+  }))
+
+# Step 2: Collect positive edges
+positive_edges <- star_graph_df %>%
+  select(pairs) %>%
+  tidyr::unnest(pairs) %>%
+  mutate(weight = 1)
+
+# Step 3: Create negative edges by pairing each center with another random center
+centers <- star_graph_df$center
+n_centers <- length(centers)
+
+negative_edges <- tibble(
+  from = centers,
+  to = purrr::map_int(centers, function(center) {
+    sample(setdiff(centers, center), 1)
+  })
+) %>%
+  bind_rows(transmute(., from = to, to = from)) %>%  # symmetric
+  mutate(weight = -1)
+
+# Step 4: Combine
+star_graph_pairs <- bind_rows(positive_edges, negative_edges)
+
+```
+## Laplacian
+```{r}
+
+# Use signed weights directly
+edge_list <- star_graph_pairs %>%
+  select(from, to, weight)
+
+# Step 1: Build node index
+nodes <- sort(unique(c(edge_list$from, edge_list$to)))
+node_index <- setNames(seq_along(nodes), nodes)
+
+# Step 2: Build signed adjacency matrix A
+A <- Matrix::sparseMatrix(
+  i = node_index[as.character(edge_list$from)],
+  j = node_index[as.character(edge_list$to)],
+  x = edge_list$weight,
+  dims = c(length(nodes), length(nodes)),
+  dimnames = list(nodes, nodes)
+)
+
+# Step 3: Compute signed degree matrix D (sum of absolute edge weights)
+d_vals <- Matrix::rowSums(abs(A))
+D_inv_sqrt <- Matrix::Diagonal(x = 1 / sqrt(d_vals))
+
+# Step 4: Compute signed normalized Laplacian
+L_signed_norm <- Matrix::Diagonal(n = length(nodes)) - D_inv_sqrt %*% A %*% D_inv_sqrt
+
+```
+## Eigenvectors and values
+```{r}
+# Set number of nontrivial eigenpairs desired
+k <- 5  # example value
+
+eig <- RSpectra::eigs_sym(
+  L_signed_norm,
+  k       = k + 1,  # request one extra to drop trivial eigenvalue
+  which   = "SM",
+  target  = 0
+)
+
+# Remove the trivial eigenpair (usually eigenvalue ~0)
+# Optionally filter based on a tolerance if needed
+eigvals <- eig$values[-1]
+eigvecs <- eig$vectors[, -1]
+
+eigvals
+
+```
+## Iterative quantization
+```{r}
+iterative_quantization <- function(X, n_iter = 50) {
+  # Step 1: Zero-center
+  X_centered <- scale(X, center = TRUE, scale = FALSE)
+
+  # Step 2: Optional PCA (skip if X already low-dimensional)
+  # SVD of centered matrix
+  svd_X <- svd(X_centered)
+  V <- svd_X$v  # principal directions
+
+  # Step 3: Project X to PCA space
+  X_pca <- X_centered %*% V
+
+  # Step 4: Initialize rotation matrix R as identity
+  R <- diag(ncol(X))
+
+  for (i in 1:n_iter) {
+    # Step 5: Compute binary code
+    B <- sign(X_pca %*% R)
+
+    # Step 6: Solve for optimal R using SVD
+    C <- t(B) %*% X_pca
+    svd_C <- svd(C)
+    R <- svd_C$u %*% t(svd_C$v)
+  }
+
+  # Final binary codes and rotation
+  list(binary_code = sign(X_pca %*% R), rotation = R)
+}
+
+# eigvecs: matrix of size n_books × k from Laplacian
+itq_result <- iterative_quantization(eigvecs)
+
+binary_embedding <- itq_result$binary_code  # contains -1/+1 codes per book
+rotation_matrix <- itq_result$rotation
+
+```
+
 
