@@ -7,10 +7,9 @@ output: html_document
 
 # Setup
 
-```{r setup, include=FALSE}
-library(CalibreMD)
-setup_packages()
+## Options
 
+```{r}
 # Set knitr options directly
 knitr::opts_chunk$set(
   fig.pos = 'h',
@@ -26,16 +25,28 @@ knitr::opts_chunk$set(
   fig.show = "hold"
 )
 
-#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
-#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
-dataDir <- '/Users/kbrooks/Dropbox/Books/calbreGPT'
+rm(list = ls())              # remove everything in the global environment
+gc() # reclaim memory
 
-md_db <- find_md_db(dataDir)
+```
+
+## Load libraries
+
+```{r setup, include=FALSE}
+library(CalibreMD)
+setup_packages()
 ```
 
 # Load data from SQLite to EAV table
 
 ```{r}
+
+#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+dataDir <- '/Users/kbrooks/Dropbox/Books/calbreGPT'
+
+md_db <- find_md_db(dataDir)
+
 eav <- md_db %>% 
   load_eav() %>% 
   explode_text_features()
