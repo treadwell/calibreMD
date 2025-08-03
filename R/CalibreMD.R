@@ -4,6 +4,7 @@ setup_packages <- function() {
   library(dplyr, quietly = TRUE, warn.conflicts = FALSE)
   invisible(lapply(c(
     "tidyr",
+    "igraph",
     "stringr",
     "tidytext",
     "Matrix",
@@ -105,6 +106,19 @@ explode_text_features <- function(eav){
       feature = as.character(feature),
       value = as.character(value)
     )
+}
+
+#' Explode tags
+#' @param eav The EAV data frame
+#' @return The EAV data frame with exploded tags
+#' @export
+explode_tags <- function(eav) {
+  tag_rows <- eav %>% 
+    filter(feature == "tag") %>% 
+    mutate(value = stringr::str_split(value, "\\.")) %>% 
+    tidyr::unnest(value)
+  
+  dplyr::bind_rows(eav, tag_rows)
 }
 
 #' Get the count of tags per book

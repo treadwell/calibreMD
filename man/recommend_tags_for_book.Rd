@@ -16,7 +16,7 @@ recommend_tags_for_book(eav, predictions_probs, book_id, threshold = 0.8)
 \item{threshold}{Probability threshold for recommendations (default 0.8)}
 }
 \value{
-A data frame with recommended tags and their probabilities
+A data frame with columns book_id, tag, and prob
 }
 \description{
 Recommend new tags for a specific book

@@ -25,7 +25,7 @@ knitr::opts_chunk$set(
   fig.show = "hold"
 )
 
-rm(list = ls())              # remove everything in the global environment
+rm(list = ls()) # remove everything in the global environment
 gc() # reclaim memory
 
 ```
@@ -48,7 +48,8 @@ md_db <- find_md_db(dataDir)
 
 eav <- md_db %>% 
   load_eav() %>% 
-  explode_text_features()
+  explode_text_features() %>% 
+  explode_tags()
 
 # Debug: Print book count
 cat("Total unique books in EAV:", length(unique(eav$id)), "\n")
@@ -80,146 +81,110 @@ Process for #2:
   b. Other clusters will look good (subsets, supersets, or other)
 3. Find representative features for the clusters (chi-Sq or mutual information)
 
-## Spectral Analysis Functions (No Threshold)
+## Build the graph
+
 ```{r}
-# Spectral version of prep_dataset - no minimum book threshold
-prep_dataset_spectral <- function(eav){
-  book_tags <- eav %>% 
-    filter(feature == "tag") %>% 
-    mutate(tag = value) %>% 
-    select(id, tag) %>% 
-    distinct() %>%
-    arrange(id)
-  
-  # No filtering by tag frequency - use all tags
-  valid_tags <- unique(book_tags$tag)
-  
-  book_tags <- book_tags %>%
-    filter(tag %in% valid_tags)
-  
-  book_features <- eav %>% 
-    filter(!feature %in% c("tag", "title_original")) %>% 
-    mutate(feature = paste(feature, value, sep = ": ")) %>% 
-    select(id, feature) %>% 
-    distinct() %>% 
-    arrange(id)
-  
-  common_ids <- sort(intersect(book_tags$id, book_features$id))
-  
-  book_tags <- book_tags %>%
-    filter(id %in% common_ids)
-  
-  book_features <- book_features %>%
-    filter(id %in% common_ids)
-  
-  # Create index mappings for row (id) and columns (tag or feature)
-  id_levels <- sort(unique(common_ids)) # ensures same order in both matrices
-  
-  # Sparse tag matrix
-  tag_levels <- sort(unique(book_tags$tag))
-  tag_matrix <- Matrix::sparseMatrix(
-    i = match(book_tags$id, id_levels),
-    j = match(book_tags$tag, tag_levels),
-    x = 1L,
-    dims = c(length(id_levels), length(tag_levels)),
-    dimnames = list(id_levels, tag_levels)
-  )
-  
-  # Sparse feature matrix
-  feature_levels <- sort(unique(book_features$feature))
-  feature_matrix <- Matrix::sparseMatrix(
-    i = match(book_features$id, id_levels),
-    j = match(book_features$feature, feature_levels),
-    x = 1L,
-    dims = c(length(id_levels), length(feature_levels)),
-    dimnames = list(id_levels, feature_levels)
-  )
-  
-  # Debug: Print dataset info
-  cat("Spectral dataset - Books:", nrow(feature_matrix), "Features:", ncol(feature_matrix), "Tags:", ncol(tag_matrix), "\n")
-  
-  list(
-    X = feature_matrix,
-    Y = tag_matrix,
-    book_features = book_features
-  )
-}
+# unique tags
+# unique books
+# number tags + book from 1 to n where n = #tags + #books
+# provide node type and tag name lookup
+# if book has tag, positive edge
+
+book_tags <- eav %>%
+  filter(feature == "tag") %>%
+  mutate(tag_name = value,
+         book_id = id) %>%
+  select(book_id, tag_name) %>%
+  distinct() %>%
+  arrange(book_id)
+
+book_ids <- book_tags %>% 
+  select(book_id) %>% 
+  distinct() %>% 
+  mutate(node_id = dplyr::row_number())
+
+tag_names <- book_tags %>% 
+  select(tag_name) %>% 
+  distinct() %>% 
+  mutate(node_id = dplyr::row_number() + length(book_ids$book_id))
+
+node_types <- data_frame(node_id = seq(nrow(book_ids) + nrow(tag_names)),
+                         type = dplyr::if_else(node_id <= length(book_ids$book_id), "book", "tag"))
+
+positive_edges <- book_tags %>% 
+  left_join(book_ids,  by = "book_id")  %>%   # adds column `node_id`
+  rename(node_a = node_id) %>%                # book → node_a
+  left_join(tag_names, by = "tag_name") %>%   # adds 2nd `node_id`
+  rename(node_b = node_id) %>%                # tag  → node_b
+  select(node_a, node_b)                      # keep only the edge list
+
+g <- graph_from_data_frame(
+        d         = positive_edges,
+        vertices  = node_types$node_id,     # all nodes, even isolates
+        directed  = FALSE
+      )
+
+cmp <- components(g)
+reps <- tibble(
+          vid  = seq_along(cmp$membership),   # vertex index (1…N)
+          comp = cmp$membership               # component ID
+        ) %>%
+        group_by(comp) %>%
+        summarise(rep = first(vid), .groups = "drop") %>%  # << first member >>
+        pull(rep)                           # plain integer vector
+new_edges <- as.vector(rbind(reps[-length(reps)], reps[-1]))
+
+positive_edges <- bind_rows(positive_edges, tibble(
+  node_a = new_edges[c(TRUE,  FALSE)],   # odd positions
+  node_b = new_edges[c(FALSE, TRUE)]     # even positions
+))
+
+# ---- 2. Make it bidirectional (A→B and B→A)
+symmetric_edges <- bind_rows(
+  positive_edges,
+  transmute(positive_edges, node_a = node_b, node_b = node_a)
+)
+
+g <- igraph::graph_from_edgelist(symmetric_edges %>% select(node_a, node_b) |> as.matrix(), directed = FALSE)
+components(g)$no
+
+#TODO
+# igraph on number of components.
+# send .db file to Matt
+
+# Now we need to ensure the graph is fully connected:
+# Option 0: semantically meaningful tag similarity (unnesting tags), connecting hierarchies
+#    0.1 maybe unnest at eav stage?
+# Option 1: randomly sample negative edges between books that share no tags 
+# Option 2: Add feature-based MST positive and negative edges (per tag set positive, intra-tag set negative)
+
 
 ```
 
-## Build the graph (anchor graph)
-
-* change star graph to anchor graph
-
+## Adjacency Matrix
 ```{r}
-tag_membership <- eav %>% 
-  filter(feature == "tag") %>% 
-  mutate(tag = value) %>% 
-  select(id, tag) %>% 
-  group_by(tag) %>% 
-  summarize(membership = list(id), .groups = "drop")
+# A <- Matrix::sparseMatrix(
+#   i = symmetric_edges$node_a,
+#   j = symmetric_edges$node_b,
+#   x = 1.0,
+#   dims = c(nrow(node_types), nrow(node_types)),
+#   dimnames = list(node_types$node_id, node_types$node_id)
+# )
 
-# Step 1: Create star graph + record center nodes per tag
-star_graph_df <- tag_membership %>%
-  mutate(center = purrr::map_int(membership, ~ sample(.x, 1))) %>%
-  mutate(pairs = purrr::map2(membership, center, function(ids, center) {
-    others <- setdiff(ids, center)
-    if (length(others) == 0) return(tibble(from = integer(), to = integer()))
-    bind_rows(
-      tibble(from = center, to = others),
-      tibble(from = others, to = center)
-    )
-  }))
-
-# Step 2: Collect positive edges
-positive_edges <- star_graph_df %>%
-  select(pairs) %>%
-  tidyr::unnest(pairs) %>%
-  mutate(weight = 1)
-
-# Step 3: Create negative edges by pairing each center with another random center
-centers <- star_graph_df$center
-n_centers <- length(centers)
-
-negative_edges <- tibble(
-  from = centers,
-  to = purrr::map_int(centers, function(center) {
-    sample(setdiff(centers, center), 1)
-  })
-) %>%
-  bind_rows(transmute(., from = to, to = from)) %>%  # symmetric
-  mutate(weight = -0.1)
-
-# Step 4: Combine
-star_graph_pairs <- bind_rows(positive_edges, negative_edges)
+A <- as_adjacency_matrix(
+        g,
+        sparse = TRUE        # <- returns Matrix::dgCMatrix
+      )
 ```
 
 ## Laplacian
 ```{r}
-
-# Use signed weights directly
-edge_list <- star_graph_pairs %>%
-  select(from, to, weight)
-
-# Step 1: Build node index
-nodes <- sort(unique(c(edge_list$from, edge_list$to)))
-node_index <- setNames(seq_along(nodes), nodes)
-
-# Step 2: Build signed adjacency matrix A
-A <- Matrix::sparseMatrix(
-  i = node_index[as.character(edge_list$from)],
-  j = node_index[as.character(edge_list$to)],
-  x = edge_list$weight,
-  dims = c(length(nodes), length(nodes)),
-  dimnames = list(nodes, nodes)
-)
-
 # Step 3: Compute signed degree matrix D (sum of absolute edge weights)
 d_vals <- Matrix::rowSums(abs(A))
 D_inv_sqrt <- Matrix::Diagonal(x = 1 / sqrt(d_vals))
 
 # Step 4: Compute signed normalized Laplacian
-L_signed_norm <- Matrix::Diagonal(n = length(nodes)) - D_inv_sqrt %*% A %*% D_inv_sqrt
+L_norm <- Matrix::Diagonal(n = nrow(node_types)) - D_inv_sqrt %*% A %*% D_inv_sqrt
 
 ```
 
@@ -231,10 +196,10 @@ L_signed_norm <- Matrix::Diagonal(n = length(nodes)) - D_inv_sqrt %*% A %*% D_in
 
 ```{r}
 # Set number of nontrivial eigenpairs desired
-k <- 38  # example value
+k <- 256 
 
 eig <- RSpectra::eigs_sym(
-  L_signed_norm,
+  L_norm,
   k       = k + 1,  # request one extra to drop trivial eigenvalue
   which   = "SM",
   target  = 0
@@ -305,160 +270,207 @@ iterative_quantization <- function(X, n_iter = 50) {
   list(binary_code = sign(X_pca %*% R), rotation = R)
 }
 
-# eigvecs: matrix of size n_books × k from Laplacian
+# Option 1: Use iterative quantization (current approach)
 itq_result <- iterative_quantization(eigvecs)
-
 binary_embedding <- itq_result$binary_code  # contains -1/+1 codes per book
-rotation_matrix <- itq_result$rotation
+# rotation_matrix <- itq_result$rotation
+
+# Option 2: Simple binary encoding (alternative approach)
+# binary_embedding <- sign(eigvecs)  # Simple sign-based binary encoding
+
+rownames(binary_embedding) <- node_types$node_id
 
 ```
 
-## Recommend tag additions using spectral analysis
+## Check binary embeddings
 ```{r}
-# Function to recommend new tags using spectral analysis
-add_new_tags_spectral <- function(eav, binary_embedding, 
-                                  threshold = 0.7, min_neighbors = 3, max_recommendations = 10) {
-  cat("Recommending new tags using spectral analysis...\n")
-  
-  # Debug: Check input data
-  cat("Debug: binary_embedding dimensions:", dim(binary_embedding), "\n")
-  cat("Debug: binary_embedding row names (first 5):", head(rownames(binary_embedding), 5), "\n")
-  cat("Debug: binary_embedding row names class:", class(rownames(binary_embedding)), "\n")
-  
-  # Get existing tag assignments
-  cat("1. Getting existing tag assignments...\n")
-  existing_tags <- eav %>% 
+cat("binary_embedding dimensions:", dim(binary_embedding), "\n")
+cat("NA count:", sum(is.na(binary_embedding)), "\n")
+cat("NaN count:", sum(is.nan(binary_embedding)), "\n")
+cat("Inf count:", sum(is.infinite(binary_embedding)), "\n")
+cat("Value range:", range(binary_embedding, na.rm = TRUE), "\n")
+cat("First 10 rownames:", head(rownames(binary_embedding), 10), "\n")
+cat("Total rownames:", length(rownames(binary_embedding)), "\n")
+print(binary_embedding[1:5, 1:5])
+
+# Check embedding diversity
+cat("\n=== EMBEDDING DIVERSITY ANALYSIS ===\n")
+
+# Count unique binary codes
+unique_codes <- unique(as.data.frame(binary_embedding))
+cat("Unique binary codes:", nrow(unique_codes), "out of", nrow(binary_embedding), "books\n")
+cat("Diversity ratio:", round(nrow(unique_codes) / nrow(binary_embedding), 3), "\n")
+
+# Check eigvecs diversity
+unique_eigvecs <- unique(as.data.frame(round(eigvecs, 6)))
+cat("Unique eigenvector codes (rounded to 6 digits):", nrow(unique_eigvecs), "out of", nrow(eigvecs), "books\n")
+cat("Eigenvector diversity ratio:", round(nrow(unique_eigvecs) / nrow(eigvecs), 3), "\n")
+
+# Check if the problem is in the star graph construction
+# cat("\n=== STAR GRAPH ANALYSIS ===\n")
+# cat("Number of tags:", nrow(tag_membership), "\n")
+# cat("Number of star graph edges:", nrow(star_graph_pairs), "\n")
+# cat("Number of unique books in star graph:", length(unique(c(star_graph_pairs$from, star_graph_pairs$to))), "\n")
+
+# Check tag distribution
+tag_counts <- eav %>% 
+  filter(feature == "tag") %>% 
+  count(value, sort = TRUE) %>%
+  head(10)
+cat("Top 10 most common tags:\n")
+print(tag_counts)
+```
+
+
+# Get new tags
+## Helper: Get existing tags for each book
+
+```{r}
+get_existing_tags <- function(eav) {
+  eav %>% 
     filter(feature == "tag") %>% 
     select(id, tag = value) %>% 
     group_by(id) %>% 
     summarize(existing_tags = list(tag), .groups = "drop")
+}
+```
+
+## Helper: Get nearest neighbors for a book
+
+```{r}
+# Hamming distance version (current)
+get_nearest_neighbors <- function(binary_embedding, book_idx, num_neighbors) {
+  book_code <- binary_embedding[book_idx, ]
+  distances <- apply(binary_embedding, 1, function(other_code) {
+    sum(book_code != other_code)  # Hamming distance
+  })
+  # distances[book_idx] <- Inf  # Exclude self
+  nearest_indices <- order(distances)[1:num_neighbors]
+  nearest_distances <- distances[nearest_indices]
+  nearest_ids <- purrr::map(nearest_indices, \(i) nodes[i])
+  list(ids = nearest_ids, indices = nearest_indices, distances = nearest_distances)
+}
+
+# Test direct feature similarity (alternative approach)
+# Try a book with more common tags
+test_book_id <- "12243"  # This book had "@Ken Brooks" tag from earlier tests
+
+# Find the book in the spectral dataset
+test_book_idx <- node_index[test_book_id]
+neighbors <- get_nearest_neighbors(binary_embedding, test_book_idx, 100)
+
+if (length(test_book_idx) > 0) {
+  cat("Testing book ID:", test_book_id, "at index:", test_book_idx, "\n")
   
-  cat("Debug: existing_tags dimensions:", dim(existing_tags), "\n")
-  cat("Debug: existing_tags id class:", class(existing_tags$id), "\n")
-  cat("Debug: existing_tags id (first 5):", head(existing_tags$id, 5), "\n")
+  # Get tags for test book
+  test_book_tags <- eav %>% 
+    filter(feature == "tag", id == as.numeric(test_book_id)) %>%
+    pull(value)
+  cat("\nTest book tags:", paste(test_book_tags, collapse = ", "), "\n")
   
-  cat("2. Analyzing nearest neighbors for each book...\n")
+  # Get tags for neighbors
+  neighbor_tags <- eav %>% 
+    filter(feature == "tag", id %in% as.numeric(neighbors$ids)) %>%
+    group_by(id) %>%
+    summarize(tags = paste(value, collapse = ", "), .groups = "drop")
   
-  # Calculate pairwise distances between all books using binary embeddings
-  # Using Hamming distance for binary codes (number of different bits)
+  cat("\nNeighbor tags:\n")
+  for (i in 1:nrow(neighbor_tags)) {
+    cat("Book", neighbor_tags$id[i], "(distance:", round(neighbors$distances[i], 3), "):", neighbor_tags$tags[i], "\n")
+  }
+  
+  # Check shared tags
+  shared_tags <- intersect(test_book_tags, unlist(strsplit(neighbor_tags$tags, ", ")))
+  cat("\nShared tags:", paste(shared_tags, collapse = ", "), "\n")
+  
+  # Count how many neighbors share at least one tag
+  neighbor_tag_lists <- strsplit(neighbor_tags$tags, ", ")
+  neighbors_with_shared_tags <- sum(sapply(neighbor_tag_lists, function(tags) length(intersect(test_book_tags, tags)) > 0))
+  cat("Neighbors with shared tags:", neighbors_with_shared_tags, "out of", length(neighbors$ids), "\n")
+  
+} else {
+  cat("Book ID", test_book_id, "not found in spectral dataset!\n")
+}
+
+```
+
+
+
+## Helper: Get tags from nearest neighbors
+
+```{r}
+get_neighbor_tags <- function(existing_tags, neighbor_indices, binary_embedding) {
+  neighbor_tags <- list()
+  for (i in seq_along(neighbor_indices)) {
+    neighbor_id <- rownames(binary_embedding)[neighbor_indices[i]]
+    if (is.null(neighbor_id)) neighbor_id <- paste0("book_", neighbor_indices[i])
+    neighbor_existing <- existing_tags %>% filter(id == neighbor_id)
+    if (nrow(neighbor_existing) > 0) {
+      neighbor_tags[[i]] <- neighbor_existing$existing_tags[[1]]
+    } else {
+      neighbor_tags[[i]] <- character(0)
+    }
+  }
+  unlist(neighbor_tags)
+}
+```
+
+## Helper: Score tags and filter recommendations
+
+```{r}
+score_tags <- function(all_neighbor_tags, nearest_distances, book_existing_tags, threshold, max_recommendations) {
+  if (length(all_neighbor_tags) == 0) return(NULL)
+  all_neighbor_tags <- as.character(all_neighbor_tags)
+  unique_tags <- unique(all_neighbor_tags)
+  tag_counts <- setNames(
+    sapply(unique_tags, function(tag) sum(all_neighbor_tags == tag)),
+    unique_tags
+  )
+  avg_distance <- mean(nearest_distances)
+  tag_scores <- tag_counts / (avg_distance + 1)
+  new_tags <- names(tag_scores)[!names(tag_scores) %in% book_existing_tags]
+  if (length(new_tags) == 0) return(NULL)
+  new_tag_scores <- tag_scores[new_tags]
+  new_tag_scores <- sort(new_tag_scores, decreasing = TRUE)
+  high_score_tags <- new_tag_scores[new_tag_scores >= threshold]
+  if (length(high_score_tags) > max_recommendations) {
+    high_score_tags <- high_score_tags[1:max_recommendations]
+  }
+  if (length(high_score_tags) == 0) return(NULL)
+  high_score_tags
+}
+```
+
+## Main: Recommend new tags using spectral analysis (refactored)
+
+```{r}
+add_new_tags_spectral <- function(eav, binary_embedding, 
+                                  threshold = 0.7, min_neighbors = 3, max_recommendations = 10) {
+  cat("Recommending new tags using spectral analysis...\n")
+  cat("Debug: binary_embedding dimensions:", dim(binary_embedding), "\n")
+  existing_tags <- get_existing_tags(eav)
   n_books <- nrow(binary_embedding)
   recommendations <- list()
-  
   for (book_idx in 1:n_books) {
     book_id <- rownames(binary_embedding)[book_idx]
     if (is.null(book_id)) book_id <- paste0("book_", book_idx)
-    
-    # Debug: Check first few books
-    if (book_idx <= 3) {
-      cat("Debug: Processing book", book_idx, "with ID:", book_id, "\n")
-    }
-    
-    # Get existing tags for this book
     book_existing <- existing_tags %>% filter(id == book_id)
     book_existing_tags <- if (nrow(book_existing) > 0) book_existing$existing_tags[[1]] else character(0)
-    
-    if (book_idx <= 3) {
-      cat("Debug: Book", book_id, "has", length(book_existing_tags), "existing tags\n")
-    }
-    
-    # Calculate distances to all other books
-    book_code <- binary_embedding[book_idx, ]
-    distances <- apply(binary_embedding, 1, function(other_code) {
-      sum(book_code != other_code)  # Hamming distance
-    })
-    
-    # Find nearest neighbors (excluding self)
-    distances[book_idx] <- Inf  # Exclude self
-    nearest_indices <- order(distances)[1:min_neighbors]
-    nearest_distances <- distances[nearest_indices]
-    
-    # Get tags from nearest neighbors
-    neighbor_tags <- list()
-    for (i in seq_along(nearest_indices)) {
-      neighbor_id <- rownames(binary_embedding)[nearest_indices[i]]
-      if (is.null(neighbor_id)) neighbor_id <- paste0("book_", nearest_indices[i])
-      
-      neighbor_existing <- existing_tags %>% filter(id == neighbor_id)
-      if (nrow(neighbor_existing) > 0) {
-        neighbor_tags[[i]] <- neighbor_existing$existing_tags[[1]]
-      } else {
-        neighbor_tags[[i]] <- character(0)
-      }
-    }
-    
-    # Calculate tag frequencies among neighbors
-    all_neighbor_tags <- unlist(neighbor_tags)
-    
-    if (book_idx <= 3) {
-      cat("Debug: Book", book_id, "has", length(all_neighbor_tags), "neighbor tags\n")
-      cat("Debug: Neighbor distances:", nearest_distances, "\n")
-    }
-    
-    if (length(all_neighbor_tags) > 0) {
-      # Ensure tag names are properly handled as character strings
-      all_neighbor_tags <- as.character(all_neighbor_tags)
-      
-      # Use manual counting instead of table() to avoid tag name issues
-      unique_tags <- unique(all_neighbor_tags)
-      tag_counts <- setNames(
-        sapply(unique_tags, function(tag) sum(all_neighbor_tags == tag)),
-        unique_tags
+    nn <- get_nearest_neighbors(binary_embedding, book_idx, min_neighbors)
+    all_neighbor_tags <- get_neighbor_tags(existing_tags, nn$indices, binary_embedding)
+    high_score_tags <- score_tags(all_neighbor_tags, nn$distances, book_existing_tags, threshold, max_recommendations)
+    if (!is.null(high_score_tags)) {
+      recommendations[[book_id]] <- list(
+        book_id = book_id,
+        existing_tags = book_existing_tags,
+        recommended_tags = names(high_score_tags),
+        tag_scores = high_score_tags,
+        nearest_neighbors = rownames(binary_embedding)[nn$indices],
+        neighbor_distances = nn$distances
       )
-      
-      # Calculate tag scores based on frequency and distance
-      tag_scores <- numeric(length(tag_counts))
-      names(tag_scores) <- names(tag_counts)
-      
-      for (i in seq_along(tag_counts)) {
-        tag <- names(tag_counts)[i]
-        count <- tag_counts[i]
-        # Weight by inverse distance and frequency
-        avg_distance <- mean(nearest_distances)
-        tag_scores[i] <- count / (avg_distance + 1)  # Add 1 to avoid division by zero
-      }
-      
-      # Filter out existing tags and sort by score
-      new_tags <- names(tag_scores)[!names(tag_scores) %in% book_existing_tags]
-      
-      if (book_idx <= 3) {
-        cat("Debug: Book", book_id, "has", length(new_tags), "potential new tags\n")
-        if (length(new_tags) > 0) {
-          cat("Debug: Top tag scores:", head(sort(tag_scores[new_tags], decreasing = TRUE), 3), "\n")
-        }
-      }
-      
-      if (length(new_tags) > 0) {
-        new_tag_scores <- tag_scores[new_tags]
-        new_tag_scores <- sort(new_tag_scores, decreasing = TRUE)
-        
-        # Apply threshold and limit recommendations
-        high_score_tags <- new_tag_scores[new_tag_scores >= threshold]
-        
-        if (book_idx <= 3) {
-          cat("Debug: Book", book_id, "has", length(high_score_tags), "tags above threshold", threshold, "\n")
-        }
-        
-        if (length(high_score_tags) > max_recommendations) {
-          high_score_tags <- high_score_tags[1:max_recommendations]
-        }
-        
-        if (length(high_score_tags) > 0) {
-          recommendations[[book_id]] <- list(
-            book_id = book_id,
-            existing_tags = book_existing_tags,
-            recommended_tags = names(high_score_tags),
-            tag_scores = high_score_tags,
-            nearest_neighbors = rownames(binary_embedding)[nearest_indices],
-            neighbor_distances = nearest_distances
-          )
-        }
-      }
     }
   }
-  
   cat("3. Formatting results...\n")
-  
-  # Convert to data frame
   if (length(recommendations) > 0) {
     results <- do.call(rbind, lapply(recommendations, function(rec) {
       data.frame(
@@ -469,10 +481,7 @@ add_new_tags_spectral <- function(eav, binary_embedding,
         stringsAsFactors = FALSE
       )
     }))
-    
-    # Sort by score
     results <- results[order(results$score, decreasing = TRUE), ]
-    
     cat("✓ Found", nrow(results), "tag recommendations for", length(recommendations), "books\n")
     return(results)
   } else {
@@ -486,8 +495,10 @@ add_new_tags_spectral <- function(eav, binary_embedding,
     ))
   }
 }
+```
 
 # Function to show tag additions in a clear format
+```{r}
 show_tag_additions <- function(spectral_results, top_n = 20) {
   if (nrow(spectral_results) == 0) {
     return(data.frame(
@@ -509,8 +520,134 @@ show_tag_additions <- function(spectral_results, top_n = 20) {
   
   return(result_df)
 }
+```
+
+## Main: Recommend new tags using feature similarity (improved approach)
+
+```{r}
+add_new_tags_feature_similarity <- function(eav, 
+                                           threshold = 0.7, min_neighbors = 5, max_recommendations = 10) {
+  cat("Recommending new tags using feature similarity...\n")
+  
+  # Get the spectral dataset (contains actual book features)
+  spectral_data <- prep_dataset_spectral(eav)
+  cat("Working with", nrow(spectral_data$X), "books and", ncol(spectral_data$X), "features\n")
+  
+  # Get existing tags
+  existing_tags <- get_existing_tags(eav)
+  
+  # Convert sparse matrix to dense for similarity calculation
+  cat("Converting to dense matrix for similarity calculation...\n")
+  X_dense <- as.matrix(spectral_data$X)
+  
+  recommendations <- list()
+  n_books <- nrow(X_dense)
+  
+  # Process books in batches to avoid memory issues
+  batch_size <- 100
+  for (batch_start in seq(1, n_books, batch_size)) {
+    batch_end <- min(batch_start + batch_size - 1, n_books)
+    cat("Processing books", batch_start, "to", batch_end, "of", n_books, "\n")
+    
+    for (book_idx in batch_start:batch_end) {
+      book_id <- rownames(X_dense)[book_idx]
+      
+      # Get existing tags for this book
+      book_existing <- existing_tags %>% filter(id == as.numeric(book_id))
+      book_existing_tags <- if (nrow(book_existing) > 0) book_existing$existing_tags[[1]] else character(0)
+      
+      # Calculate cosine similarities for this book
+      book_vec <- X_dense[book_idx, ]
+      similarities <- apply(X_dense, 1, function(other_vec) {
+        sum(book_vec * other_vec) / (sqrt(sum(book_vec^2)) * sqrt(sum(other_vec^2)))
+      })
+      similarities[book_idx] <- -Inf  # Exclude self
+      
+      # Get nearest neighbors
+      nearest_indices <- order(similarities, decreasing = TRUE)[1:min_neighbors]
+      nearest_similarities <- similarities[nearest_indices]
+      neighbor_book_ids <- rownames(X_dense)[nearest_indices]
+      
+      # Get tags from neighbors
+      neighbor_tags <- eav %>% 
+        filter(feature == "tag", id %in% as.numeric(neighbor_book_ids)) %>%
+        group_by(id) %>%
+        summarize(tags = list(value), .groups = "drop")
+      
+      all_neighbor_tags <- unlist(neighbor_tags$tags)
+      
+      if (length(all_neighbor_tags) > 0) {
+        # Score tags based on frequency and similarity
+        unique_tags <- unique(all_neighbor_tags)
+        tag_scores <- numeric(length(unique_tags))
+        names(tag_scores) <- unique_tags
+        
+        for (i in seq_along(unique_tags)) {
+          tag <- unique_tags[i]
+          # Count frequency and weight by similarity
+          tag_count <- sum(all_neighbor_tags == tag)
+          avg_similarity <- mean(nearest_similarities[which(all_neighbor_tags == tag)])
+          tag_scores[i] <- tag_count * avg_similarity
+        }
+        
+        # Filter out existing tags
+        new_tags <- names(tag_scores)[!names(tag_scores) %in% book_existing_tags]
+        
+        if (length(new_tags) > 0) {
+          new_tag_scores <- tag_scores[new_tags]
+          new_tag_scores <- sort(new_tag_scores, decreasing = TRUE)
+          
+          # Apply threshold and limit
+          high_score_tags <- new_tag_scores[new_tag_scores >= threshold]
+          if (length(high_score_tags) > max_recommendations) {
+            high_score_tags <- high_score_tags[1:max_recommendations]
+          }
+          
+          if (length(high_score_tags) > 0) {
+            recommendations[[book_id]] <- list(
+              book_id = book_id,
+              existing_tags = book_existing_tags,
+              recommended_tags = names(high_score_tags),
+              tag_scores = high_score_tags,
+              nearest_neighbors = neighbor_book_ids,
+              neighbor_similarities = nearest_similarities
+            )
+          }
+        }
+      }
+    }
+  }
+  
+  cat("Formatting results...\n")
+  if (length(recommendations) > 0) {
+    results <- do.call(rbind, lapply(recommendations, function(rec) {
+      data.frame(
+        book_id = rec$book_id,
+        recommended_tag = rec$recommended_tags,
+        score = rec$tag_scores,
+        existing_tags = paste(rec$existing_tags, collapse = ", "),
+        stringsAsFactors = FALSE
+      )
+    }))
+    results <- results[order(results$score, decreasing = TRUE), ]
+    cat("✓ Found", nrow(results), "tag recommendations for", length(recommendations), "books\n")
+    return(results)
+  } else {
+    cat("✓ No tag recommendations found\n")
+    return(data.frame(
+      book_id = character(),
+      recommended_tag = character(),
+      score = numeric(),
+      existing_tags = character(),
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+```
 
 # Test the spectral tag recommendation function
+
+```{r}
 cat("\n=== Testing spectral tag recommendations ===\n")
 spectral_recommendations <- add_new_tags_spectral(
   eav = eav,
@@ -519,15 +656,44 @@ spectral_recommendations <- add_new_tags_spectral(
   min_neighbors = 3,
   max_recommendations = 5
 )
+```
 
 # Get clean data frame of tag additions
+
+```{r}
 tag_additions_df <- show_tag_additions(spectral_recommendations)
+```
 
 # Display the results
+```{r}
 cat("Tag additions data frame:\n")
 print(tag_additions_df)
 
 #saveRDS(tag_additions_df, "~/downloads/tag_additions_df.rds")
-``` 
+```
+
+# Test the improved feature similarity tag recommendation function
+
+```{r}
+cat("\n=== Testing improved feature similarity tag recommendations ===\n")
+feature_similarity_recommendations <- add_new_tags_feature_similarity(
+  eav = eav,
+  threshold = 0.5,  # Lower threshold for testing
+  min_neighbors = 5,
+  max_recommendations = 5
+)
+```
+
+# Get clean data frame of feature similarity tag additions
+
+```{r}
+feature_similarity_tag_additions_df <- show_tag_additions(feature_similarity_recommendations)
+```
+
+# Display the feature similarity results
+```{r}
+cat("Feature similarity tag additions data frame:\n")
+print(feature_similarity_tag_additions_df)
+```
 
 # End
