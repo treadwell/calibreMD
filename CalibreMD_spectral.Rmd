@@ -94,6 +94,7 @@ Process for #2:
 # provide node type and tag name lookup
 # if book has tag, positive edge
 
+# book-tag mapping
 book_tags <- eav %>%
   filter(feature == "tag") %>%
   mutate(tag_name = value,
@@ -102,23 +103,27 @@ book_tags <- eav %>%
   distinct() %>%
   arrange(book_id)
 
+# distinct book_ids and add a node_id (simply 0-n)
 book_ids <- book_tags %>% 
   select(book_id) %>% 
   distinct() %>% 
   mutate(node_id = dplyr::row_number())
 
+# distinct tags and add a node_id (n+1 to...)
 tag_names <- book_tags %>% 
   select(tag_name) %>% 
   distinct() %>% 
   mutate(node_id = dplyr::row_number() + length(book_ids$book_id))
 
+# unified node_id to type lookup (answers is a node a book or a tag?)
 node_types <- data_frame(node_id = seq(nrow(book_ids) + nrow(tag_names)),
                          type = dplyr::if_else(node_id <= length(book_ids$book_id), "book", "tag"))
 
-positive_edges <- book_tags %>% 
-  left_join(book_ids,  by = "book_id")  %>%   # adds column `node_id`
+
+positive_edges <- book_tags %>%               # book_id, tag name
+  inner_join(book_ids,  by = "book_id")  %>%   # adds column `node_id`
   rename(node_a = node_id) %>%                # book → node_a
-  left_join(tag_names, by = "tag_name") %>%   # adds 2nd `node_id`
+  inner_join(tag_names, by = "tag_name") %>%   # adds 2nd `node_id`
   rename(node_b = node_id) %>%                # tag  → node_b
   select(node_a, node_b)                      # keep only the edge list
 
@@ -429,7 +434,9 @@ test_book_id <- "12243"  # This book had "@Ken Brooks" tag from earlier tests
 # Find the book in the spectral dataset
 # test_book_idx <- book_ids[test_book_id]
 
-# book_id -> node_id
+# book_id -> node_id 
+# NOTE:
+# (shouldnt this be using the rownames of binary embedding? or node_type$node_id)
 test_book_idx <- book_ids %>% 
   dplyr::filter(book_id == as.numeric(test_book_id)) %>%
   dplyr::pull(node_id)

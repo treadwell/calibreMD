@@ -113,20 +113,23 @@ explode_text_features <- function(eav){
 #' @return The EAV data frame with exploded tags
 #' @export
 explode_tags <- function(eav) {
-  # Keep original tag rows and add hierarchical prefixes (including the full tag)
+  # Expand hierarchical tags and also emit individual segments (unigrams)
   tag_rows <- eav %>%
     dplyr::filter(feature == "tag") %>%
-    dplyr::mutate(prefixes = purrr::map(value, function(tag_str) {
+    dplyr::mutate(expanded = purrr::map(value, function(tag_str) {
       tag_str <- as.character(tag_str)
       parts <- unlist(strsplit(tag_str, "\\."))
       if (length(parts) == 0) return(character(0))
-      vapply(seq_along(parts), function(k) paste(parts[1:k], collapse = "."), character(1))
+      # hierarchical prefixes: a, a.b, a.b.c
+      prefixes <- vapply(seq_along(parts), function(k) paste(parts[1:k], collapse = "."), character(1))
+      # individual segments: a, b, c
+      segments <- unique(parts)
+      unique(c(prefixes, segments))
     })) %>%
-    dplyr::select(id, feature, prefixes) %>%
-    tidyr::unnest(prefixes, keep_empty = TRUE) %>%
-    dplyr::rename(value = prefixes)
+    dplyr::select(id, feature, expanded) %>%
+    tidyr::unnest(expanded, keep_empty = TRUE) %>%
+    dplyr::rename(value = expanded)
 
-  # Combine and dedupe so we don't duplicate top-level tags or existing rows
   dplyr::bind_rows(eav, tag_rows) %>%
     dplyr::mutate(
       id = as.numeric(id),
