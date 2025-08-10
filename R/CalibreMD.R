@@ -113,12 +113,27 @@ explode_text_features <- function(eav){
 #' @return The EAV data frame with exploded tags
 #' @export
 explode_tags <- function(eav) {
-  tag_rows <- eav %>% 
-    filter(feature == "tag") %>% 
-    mutate(value = stringr::str_split(value, "\\.")) %>% 
-    tidyr::unnest(value)
-  
-  dplyr::bind_rows(eav, tag_rows)
+  # Keep original tag rows and add hierarchical prefixes (including the full tag)
+  tag_rows <- eav %>%
+    dplyr::filter(feature == "tag") %>%
+    dplyr::mutate(prefixes = purrr::map(value, function(tag_str) {
+      tag_str <- as.character(tag_str)
+      parts <- unlist(strsplit(tag_str, "\\."))
+      if (length(parts) == 0) return(character(0))
+      vapply(seq_along(parts), function(k) paste(parts[1:k], collapse = "."), character(1))
+    })) %>%
+    dplyr::select(id, feature, prefixes) %>%
+    tidyr::unnest(prefixes, keep_empty = TRUE) %>%
+    dplyr::rename(value = prefixes)
+
+  # Combine and dedupe so we don't duplicate top-level tags or existing rows
+  dplyr::bind_rows(eav, tag_rows) %>%
+    dplyr::mutate(
+      id = as.numeric(id),
+      feature = as.character(feature),
+      value = as.character(value)
+    ) %>%
+    dplyr::distinct(id, feature, value, .keep_all = TRUE)
 }
 
 #' Get the count of tags per book

@@ -50,6 +50,10 @@ eav <- md_db %>%
   load_eav() %>% 
   explode_text_features() %>% 
   explode_tags()
+# FIX:
+#  * We're not keeping the orig tag, and we should. 
+#  * And we're not deduping, which we should
+#  * there is duplication on the top tag
 
 # Debug: Print book count
 cat("Total unique books in EAV:", length(unique(eav$id)), "\n")
@@ -145,7 +149,11 @@ symmetric_edges <- bind_rows(
   transmute(positive_edges, node_a = node_b, node_b = node_a)
 )
 
-g <- igraph::graph_from_edgelist(symmetric_edges %>% select(node_a, node_b) |> as.matrix(), directed = FALSE)
+# Create graph with weights (all positive edges have weight 1)
+g <- igraph::graph_from_data_frame(
+  symmetric_edges %>% mutate(weight = 1), 
+  directed = FALSE
+)
 components(g)$no
 
 #TODO
@@ -218,14 +226,12 @@ eigvals
 ```{r}
 library(igraph)
 
-g  <- graph_from_data_frame(star_graph_pairs, directed = FALSE) |>
-        simplify(remove.multiple = TRUE,
-                 remove.loops    = TRUE,
-                 edge.attr.comb  = list(weight = "sum"))
+# Simplify graph for visualization (remove loops and multiple edges)
+g_viz <- simplify(g, remove.multiple = TRUE, remove.loops = TRUE, edge.attr.comb = "sum")
 
-plot(g, layout = eigvecs[, 3:5], vertex.size = 4, vertex.label = NA,
-     edge.color = ifelse(E(g)$weight > 0, "steelblue", "firebrick"),
-     edge.width = abs(E(g)$weight) + .2)
+plot(g_viz, layout = eigvecs[, 1:2], vertex.size = 4, vertex.label = NA,
+     edge.color = ifelse(E(g_viz)$weight > 0, "steelblue", "firebrick"),
+     edge.width = abs(E(g_viz)$weight) + .2)
 ```
 
 ## Iterative quantization (optional)
@@ -306,11 +312,76 @@ unique_eigvecs <- unique(as.data.frame(round(eigvecs, 6)))
 cat("Unique eigenvector codes (rounded to 6 digits):", nrow(unique_eigvecs), "out of", nrow(eigvecs), "books\n")
 cat("Eigenvector diversity ratio:", round(nrow(unique_eigvecs) / nrow(eigvecs), 3), "\n")
 
-# Check if the problem is in the star graph construction
-# cat("\n=== STAR GRAPH ANALYSIS ===\n")
-# cat("Number of tags:", nrow(tag_membership), "\n")
-# cat("Number of star graph edges:", nrow(star_graph_pairs), "\n")
-# cat("Number of unique books in star graph:", length(unique(c(star_graph_pairs$from, star_graph_pairs$to))), "\n")
+# Check if the problem is in the graph construction
+cat("\n=== GRAPH ANALYSIS ===\n")
+cat("Books:", nrow(book_ids), "\n")
+cat("Tags:", nrow(tag_names), "\n")
+cat("Positive edges:", nrow(positive_edges), "\n")
+cat("Symmetric edges:", nrow(symmetric_edges), "\n")
+cat("Graph edges (including multiples):", igraph::ecount(g), "\n")
+
+cmp <- igraph::components(g)
+cat("Connected components:", cmp$no, "\n")
+
+# Edge diagnostics
+edge_ends <- igraph::ends(g, igraph::E(g))
+loops_count <- sum(edge_ends[, 1] == edge_ends[, 2])
+multiples_count <- sum(igraph::which_multiple(g))
+cat("Loops:", loops_count, "\n")
+cat("Multiple edges:", multiples_count, "\n")
+
+# Degree by node type
+deg <- igraph::degree(g, mode = "all")
+deg_df <- tibble::tibble(node_id = as.integer(names(deg)), degree = as.numeric(deg)) |>
+  dplyr::left_join(node_types, by = "node_id")
+
+cat("\nDegree summary (books):\n")
+print(
+  deg_df |>
+    dplyr::filter(type == "book") |>
+    dplyr::summarize(
+      min = min(degree),
+      q1 = quantile(degree, 0.25),
+      median = median(degree),
+      mean = mean(degree),
+      q3 = quantile(degree, 0.75),
+      max = max(degree)
+    )
+)
+
+cat("\nDegree summary (tags):\n")
+print(
+  deg_df |>
+    dplyr::filter(type == "tag") |>
+    dplyr::summarize(
+      min = min(degree),
+      q1 = quantile(degree, 0.25),
+      median = median(degree),
+      mean = mean(degree),
+      q3 = quantile(degree, 0.75),
+      max = max(degree)
+    )
+)
+
+# Top tags by connectivity
+top_tags <- deg_df |>
+  dplyr::filter(type == "tag") |>
+  dplyr::arrange(dplyr::desc(degree)) |>
+  dplyr::slice(1:10) |>
+  dplyr::left_join(tag_names, by = "node_id") |>
+  dplyr::select(tag_name, degree)
+cat("\nTop 10 tags by degree:\n")
+print(top_tags)
+
+# Top books by connectivity
+top_books <- deg_df |>
+  dplyr::filter(type == "book") |>
+  dplyr::arrange(dplyr::desc(degree)) |>
+  dplyr::slice(1:10) |>
+  dplyr::left_join(book_ids, by = "node_id") |>
+  dplyr::select(book_id, degree)
+cat("\nTop 10 books by degree:\n")
+print(top_books)
 
 # Check tag distribution
 tag_counts <- eav %>% 
@@ -340,15 +411,15 @@ get_existing_tags <- function(eav) {
 ```{r}
 # Hamming distance version (current)
 get_nearest_neighbors <- function(binary_embedding, book_idx, num_neighbors) {
-  book_code <- binary_embedding[book_idx, ]
-  distances <- apply(binary_embedding, 1, function(other_code) {
-    sum(book_code != other_code)  # Hamming distance
-  })
-  # distances[book_idx] <- Inf  # Exclude self
+  book_code <- binary_embedding[book_idx, , drop = FALSE]
+  distances <- apply(binary_embedding, 1, function(other_code) sum(book_code != other_code))
+  distances[book_idx] <- Inf  # exclude self
   nearest_indices <- order(distances)[1:num_neighbors]
-  nearest_distances <- distances[nearest_indices]
-  nearest_ids <- purrr::map(nearest_indices, \(i) nodes[i])
-  list(ids = nearest_ids, indices = nearest_indices, distances = nearest_distances)
+  list(
+    indices   = nearest_indices,
+    ids       = rownames(binary_embedding)[nearest_indices],
+    distances = distances[nearest_indices]
+  )
 }
 
 # Test direct feature similarity (alternative approach)
@@ -356,7 +427,13 @@ get_nearest_neighbors <- function(binary_embedding, book_idx, num_neighbors) {
 test_book_id <- "12243"  # This book had "@Ken Brooks" tag from earlier tests
 
 # Find the book in the spectral dataset
-test_book_idx <- node_index[test_book_id]
+# test_book_idx <- book_ids[test_book_id]
+
+# book_id -> node_id
+test_book_idx <- book_ids %>% 
+  dplyr::filter(book_id == as.numeric(test_book_id)) %>%
+  dplyr::pull(node_id)
+
 neighbors <- get_nearest_neighbors(binary_embedding, test_book_idx, 100)
 
 if (length(test_book_idx) > 0) {
