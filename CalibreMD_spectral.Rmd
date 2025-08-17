@@ -119,7 +119,6 @@ tag_names <- book_tags %>%
 node_types <- data_frame(node_id = seq(nrow(book_ids) + nrow(tag_names)),
                          type = dplyr::if_else(node_id <= length(book_ids$book_id), "book", "tag"))
 
-
 positive_edges <- book_tags %>%               # book_id, tag name
   inner_join(book_ids,  by = "book_id")  %>%   # adds column `node_id`
   rename(node_a = node_id) %>%                # book → node_a
@@ -134,6 +133,7 @@ g <- graph_from_data_frame(
       )
 
 cmp <- components(g)
+
 reps <- tibble(
           vid  = seq_along(cmp$membership),   # vertex index (1…N)
           comp = cmp$membership               # component ID
@@ -141,6 +141,7 @@ reps <- tibble(
         group_by(comp) %>%
         summarise(rep = first(vid), .groups = "drop") %>%  # << first member >>
         pull(rep)                           # plain integer vector
+
 new_edges <- as.vector(rbind(reps[-length(reps)], reps[-1]))
 
 positive_edges <- bind_rows(positive_edges, tibble(
@@ -148,29 +149,19 @@ positive_edges <- bind_rows(positive_edges, tibble(
   node_b = new_edges[c(FALSE, TRUE)]     # even positions
 ))
 
-# ---- 2. Make it bidirectional (A→B and B→A)
-symmetric_edges <- bind_rows(
-  positive_edges,
-  transmute(positive_edges, node_a = node_b, node_b = node_a)
-)
+# # ---- 2. Make it bidirectional (A→B and B→A)
+# symmetric_edges <- bind_rows(
+#   positive_edges,
+#   transmute(positive_edges, node_a = node_b, node_b = node_a)
+# )
 
 # Create graph with weights (all positive edges have weight 1)
 g <- igraph::graph_from_data_frame(
-  symmetric_edges %>% mutate(weight = 1), 
+  positive_edges %>% mutate(weight = 1), 
+  vertices  = node_types$node_id,
   directed = FALSE
 )
 components(g)$no
-
-#TODO
-# igraph on number of components.
-# send .db file to Matt
-
-# Now we need to ensure the graph is fully connected:
-# Option 0: semantically meaningful tag similarity (unnesting tags), connecting hierarchies
-#    0.1 maybe unnest at eav stage?
-# Option 1: randomly sample negative edges between books that share no tags 
-# Option 2: Add feature-based MST positive and negative edges (per tag set positive, intra-tag set negative)
-
 
 ```
 
@@ -186,8 +177,11 @@ components(g)$no
 
 A <- as_adjacency_matrix(
         g,
+        type = "both",
         sparse = TRUE        # <- returns Matrix::dgCMatrix
       )
+
+V(g)$name
 ```
 
 ## Laplacian
@@ -252,7 +246,7 @@ plot(g_viz, layout = eigvecs[, 1:2], vertex.size = 4, vertex.label = NA,
 * This can be used to find similar books per the underlying graph
 
 ```{r}
-iterative_quantization <- function(X, n_iter = 50) {
+iterative_quantization <- function(X, n_iter = 25) {
   # Step 1: Zero-center
   X_centered <- scale(X, center = TRUE, scale = FALSE)
 
@@ -322,7 +316,6 @@ cat("\n=== GRAPH ANALYSIS ===\n")
 cat("Books:", nrow(book_ids), "\n")
 cat("Tags:", nrow(tag_names), "\n")
 cat("Positive edges:", nrow(positive_edges), "\n")
-cat("Symmetric edges:", nrow(symmetric_edges), "\n")
 cat("Graph edges (including multiples):", igraph::ecount(g), "\n")
 
 cmp <- igraph::components(g)
@@ -397,7 +390,6 @@ cat("Top 10 most common tags:\n")
 print(tag_counts)
 ```
 
-
 # Get new tags
 ## Helper: Get existing tags for each book
 
@@ -435,13 +427,72 @@ test_book_id <- "12243"  # This book had "@Ken Brooks" tag from earlier tests
 # test_book_idx <- book_ids[test_book_id]
 
 # book_id -> node_id 
-# NOTE:
-# (shouldnt this be using the rownames of binary embedding? or node_type$node_id)
 test_book_idx <- book_ids %>% 
   dplyr::filter(book_id == as.numeric(test_book_id)) %>%
   dplyr::pull(node_id)
 
 neighbors <- get_nearest_neighbors(binary_embedding, test_book_idx, 100)
+
+# 1) Build helper tables (all node_id as character to avoid type mismatches)
+node_types_chr <- node_types %>% mutate(node_id = as.character(node_id))
+book_ids_chr   <- book_ids   %>% mutate(node_id = as.character(node_id))
+tag_names_chr  <- tag_names  %>% mutate(node_id = as.character(node_id))
+
+# Existing tags per *book_id*
+existing_tags_df <- get_existing_tags(eav)   # cols: id (book_id), existing_tags (list)
+
+# Map *node_id* -> (book_id, collapsed_tags)
+book_tags_by_node <- book_ids_chr %>%
+  left_join(existing_tags_df, by = c("book_id" = "id")) %>%
+  mutate(tags_str = vapply(existing_tags, function(x) paste(x, collapse = ", "),
+                           FUN.VALUE = character(1L))) %>%
+  select(node_id, book_id, tags_str)
+
+# 2) Build a tidy neighbors table (ranked)
+nbrs <- neighbors  # from get_nearest_neighbors(...)
+nbrs_df <- tibble(
+  rank     = seq_along(nbrs$indices),
+  node_id  = if (!is.null(nbrs$ids)) as.character(nbrs$ids) else as.character(nbrs$indices),
+  distance = nbrs$distances
+) %>%
+  left_join(node_types_chr, by = "node_id") %>%                  # adds 'type'
+  left_join(book_tags_by_node, by = "node_id") %>%               # adds 'book_id', 'tags_str'
+  left_join(tag_names_chr %>% rename(tag_label = tag_name), by = "node_id") %>%  # adds 'tag_label'
+  mutate(label = dplyr::case_when(
+    type == "book" ~ paste0("book_id=", book_id,
+                            ifelse(is.na(tags_str) | tags_str == "", "",
+                                   paste0(" : tags=[", tags_str, "]"))),
+    type == "tag"  ~ paste0("tag=", tag_label),
+    TRUE           ~ paste0("type=", coalesce(type, "NA"))
+  )) %>%
+  select(rank, node_id, type, label, distance) %>%
+  arrange(rank)
+
+# 3) Print (no global row index)
+for (i in seq_len(nrow(nbrs_df))) {
+  cat(sprintf("%3d: %s : distance=%s : %s\n",
+              nbrs_df$rank[i],
+              nbrs_df$node_id[i],
+              nbrs_df$distance[i],
+              nbrs_df$label[i]))
+}
+
+################################################################ STOP HERE
+```
+## API design
+
+* given a db, produce a codebook that projects books and tags into a common embedding space
+* Given a book, show me recommended tags at each margin (distance)
+* Given a tag, show me which books it should be in at each margin
+* Give me the optimal tags for a book
+* Give me the books that should optimally have this tag
+* Recommend tag nesting (if it's a suffix, recommend the unexploded tag)
+* Given a codebook, learn mappings from raw features to codes
+
+```{r}
+################################################################
+# (Optional) quick sanity check: see how many books vs tags in the neighbor list
+print(table(nbrs_df$type, useNA = "ifany"))
 
 if (length(test_book_idx) > 0) {
   cat("Testing book ID:", test_book_id, "at index:", test_book_idx, "\n")
