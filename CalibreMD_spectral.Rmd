@@ -50,10 +50,6 @@ eav <- md_db %>%
   load_eav() %>% 
   explode_text_features() %>% 
   explode_tags()
-# FIX:
-#  * We're not keeping the orig tag, and we should. 
-#  * And we're not deduping, which we should
-#  * there is duplication on the top tag
 
 # Debug: Print book count
 cat("Total unique books in EAV:", length(unique(eav$id)), "\n")
@@ -149,12 +145,6 @@ positive_edges <- bind_rows(positive_edges, tibble(
   node_b = new_edges[c(FALSE, TRUE)]     # even positions
 ))
 
-# # ---- 2. Make it bidirectional (A→B and B→A)
-# symmetric_edges <- bind_rows(
-#   positive_edges,
-#   transmute(positive_edges, node_a = node_b, node_b = node_a)
-# )
-
 # Create graph with weights (all positive edges have weight 1)
 g <- igraph::graph_from_data_frame(
   positive_edges %>% mutate(weight = 1), 
@@ -181,7 +171,7 @@ A <- as_adjacency_matrix(
         sparse = TRUE        # <- returns Matrix::dgCMatrix
       )
 
-V(g)$name
+head(V(g)$name)
 ```
 
 ## Laplacian
@@ -488,6 +478,9 @@ for (i in seq_len(nrow(nbrs_df))) {
 * Give me the books that should optimally have this tag
 * Recommend tag nesting (if it's a suffix, recommend the unexploded tag)
 * Given a codebook, learn mappings from raw features to codes
+
+Notes
+* check classic version for functions
 
 ```{r}
 ################################################################
