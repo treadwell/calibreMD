@@ -210,7 +210,7 @@ eigvecs <- eig$vectors[, -1]
 eigvals
 
 ```
-## visualize
+## Visualize graph
 
 ```{r}
 library(igraph)
@@ -267,13 +267,15 @@ iterative_quantization <- function(X, n_iter = 25) {
 
 # Option 1: Use iterative quantization (current approach)
 itq_result <- iterative_quantization(eigvecs)
-binary_embedding <- itq_result$binary_code  # contains -1/+1 codes per book
+binary_embedding <- itq_result$binary_code  # contains -1/+1 codes per book (unpacked)
 # rotation_matrix <- itq_result$rotation
 
 # Option 2: Simple binary encoding (alternative approach)
 # binary_embedding <- sign(eigvecs)  # Simple sign-based binary encoding
 
 rownames(binary_embedding) <- node_types$node_id
+
+# Simpler approach below uses Hamming distance directly in R; no packed embedding required
 
 ```
 
@@ -388,6 +390,65 @@ cat("Top 10 most common tags:\n")
 print(tag_counts %>% head(10))
 ```
 
+## Unified metadata builder (not yet integrated)
+
+```{r}
+# Build a single metadata tibble with unified lookups by node_id
+# Columns: node_id, node_type, row_id, book_id, book_title, tag_name, tag_origin
+build_unified_metadata <- function(eav, book_ids, tag_names, node_types, binary_embedding, md_db) {
+  stopifnot(is.data.frame(eav), is.data.frame(book_ids), is.data.frame(tag_names),
+            is.data.frame(node_types), is.matrix(binary_embedding))
+
+  # Titles by book_id
+  titles <- eav %>%
+    dplyr::filter(feature == "title_original") %>%
+    dplyr::distinct(id, .keep_all = TRUE) %>%
+    dplyr::transmute(book_id = as.integer(id), book_title = as.character(value))
+
+  # Original tag values from source DB (pre-explosion)
+  original_tag_values <- md_db %>%
+    load_eav() %>%
+    dplyr::filter(feature == "tag") %>%
+    dplyr::distinct(value) %>%
+    dplyr::pull(value) %>%
+    as.character()
+
+  # Base node frame
+  nodes <- tibble::tibble(
+    node_id   = as.integer(node_types$node_id),
+    node_type = as.character(node_types$type)
+  )
+
+  # row_id mapping: by construction rownames(binary_embedding) == node_id
+  row_map <- tibble::tibble(
+    node_id = suppressWarnings(as.integer(rownames(binary_embedding))),
+    row_id  = suppressWarnings(as.integer(rownames(binary_embedding)))
+  )
+
+  # Book-side metadata
+  books_meta <- book_ids %>%
+    dplyr::transmute(node_id = as.integer(node_id), book_id = as.integer(book_id)) %>%
+    dplyr::left_join(titles, by = "book_id")
+
+  # Tag-side metadata
+  tags_meta <- tag_names %>%
+    dplyr::transmute(node_id = as.integer(node_id), tag_name = as.character(tag_name)) %>%
+    dplyr::mutate(tag_origin = ifelse(tag_name %in% original_tag_values, "original", "exploded"))
+
+  # Unified
+  unified <- nodes %>%
+    dplyr::left_join(row_map,  by = "node_id") %>%
+    dplyr::left_join(books_meta, by = "node_id") %>%
+    dplyr::left_join(tags_meta,  by = "node_id") %>%
+    dplyr::arrange(node_id)
+
+  unified
+}
+
+# Example:
+unified_meta <- build_unified_metadata(eav, book_ids, tag_names, node_types, binary_embedding, md_db)
+```
+
 # Get new tags
 
 ## API design
@@ -414,89 +475,63 @@ get_existing_tags <- function(eav) {
 }
 ```
 
-## Helper: Get nearest neighbors for a book
+## Get nearest neighbors
+
+Refactor:
+
+1. Formalize entity metadata lookup (node_type, book_id, tag_name) from node_id
+2. Remove global references throughout
+3. Iterative Quantization must return uint8 matrix of 0s and 1s
+4. Add a helper function to create a queryable index from the uint8 matrix
+  a. must be a Hamming-based index, either LSH or flat
+5. get_nearest_neighbors() should accept existing filtering arguments as well as the index and metadata lookup structures.
+6. Recommend_tags() should not do individual NN searches, it should use an index-provided all_neighborhood() function
+
 
 ```{r}
-get_nearest_neighbors <- function(binary_embedding,
-                                  book_idx,
+# Simple Hamming-based nearest neighbors (pure R, no Python interop)
+get_nearest_neighbors <- function(code_vector,
                                   num_neighbors = NULL,
                                   margin = NULL,
                                   type = NULL,
-                                  node_type = NULL,
-                                  book_ids = NULL) {
-  stopifnot(is.matrix(binary_embedding), book_idx >= 1, book_idx <= nrow(binary_embedding))
+                                  node_type = NULL) {
+  stopifnot(is.numeric(code_vector))
+  stopifnot(exists("binary_embedding"), is.matrix(binary_embedding))
 
-  # Ensure rownames exist (used for ids if needed)
-  if (is.null(rownames(binary_embedding))) {
-    rownames(binary_embedding) <- as.character(seq_len(nrow(binary_embedding)))
-  }
-
-  # Vectorized Hamming distance
-  book_code <- binary_embedding[book_idx, , drop = FALSE]
-  diffs <- binary_embedding != matrix(rep(book_code, nrow(binary_embedding)),
-                                      nrow = nrow(binary_embedding), byrow = TRUE)
+  # Hamming distance to all rows
+  diffs <- binary_embedding != matrix(rep(code_vector, nrow(binary_embedding)), nrow(binary_embedding), byrow = TRUE)
   distances <- rowSums(diffs)
-  distances[book_idx] <- Inf  # exclude self
 
   # Candidate set
-  candidates <- which(is.finite(distances))
+  candidates <- seq_len(nrow(binary_embedding))
 
-  # 1) Margin filter
+  # Type filter: row index equals node_id by construction
+  if (!is.null(type)) {
+    stopifnot(!is.null(node_type), all(c("node_id", "type") %in% names(node_type)))
+    same_type_ids <- node_type$node_id[node_type$type == type]
+    candidates <- candidates[candidates %in% same_type_ids]
+  }
+
+  # Margin filter
   if (!is.null(margin)) {
     stopifnot(is.numeric(margin), margin >= 0)
     candidates <- candidates[distances[candidates] <= margin]
   }
 
-  # 2) Type filter
-  if (!is.null(type)) {
-    stopifnot(!is.null(node_type),
-              all(c("node_id", "type") %in% names(node_type)))
-    query_type <- node_type %>%
-      dplyr::filter(node_id == book_idx) %>%
-      dplyr::pull(type)
-    candidates <- candidates[candidates %in%
-                               node_type$node_id[node_type$type == query_type]]
+  if (length(candidates) == 0) return(list(node_ids = integer(0), distances = numeric(0)))
+
+  # Order by distance then index
+  ord <- order(distances[candidates], candidates)
+  candidates <- candidates[ord]
+
+  # Top-k
+  if (!is.null(num_neighbors) && length(candidates) > num_neighbors) {
+    candidates <- candidates[seq_len(as.integer(num_neighbors))]
   }
 
-  if (length(candidates) == 0) {
-    return(list(
-      node_ids  = integer(0),
-      book_ids  = integer(0),
-      distances = numeric(0)
-    ))
-  }
-
-  # 3) Sort by distance then index
-  ord_local <- order(distances[candidates], candidates)
-  candidates <- candidates[ord_local]
-
-  # 4) Top-k
-  if (!is.null(num_neighbors)) {
-    stopifnot(is.numeric(num_neighbors), num_neighbors >= 1)
-    k <- min(as.integer(num_neighbors), length(candidates))
-    candidates <- candidates[seq_len(k)]
-  }
-
-  # Map node_id -> book_id if mapping provided
-  mapped_book_ids <- if (!is.null(book_ids)) {
-    dplyr::left_join(
-      tibble::tibble(node_id = candidates),
-      book_ids,
-      by = "node_id"
-    )$book_id
-  } else {
-    rep(NA_integer_, length(candidates))
-  }
-
-  list(
-    node_ids  = candidates,
-    book_ids  = mapped_book_ids,
-    distances = distances[candidates]
-  )
+  list(node_ids = candidates, distances = distances[candidates])
 }
 ```
-
-## Helper: get neighborhoods (to do)
 
 ## Main: Recommend tags
 ```{r}
@@ -510,7 +545,8 @@ get_nearest_neighbors <- function(binary_embedding,
 recommend_tags <- function(margin,
                            num_neighbors = NULL,
                            type = NULL,
-                           node_type = NULL) {
+                           node_type = NULL,
+                           faiss_index) {
   stopifnot(all(c("node_id", "book_id") %in% names(book_ids)))
   stopifnot(all(c("node_id", "tag_name") %in% names(tag_names)))
 
@@ -553,14 +589,17 @@ recommend_tags <- function(margin,
     this_node_id <- book_ids$node_id[i]
     this_book_id <- book_ids$book_id[i]
 
+    # Locate query code vector by node_id
+    row_idx <- which(rownames(binary_embedding) == as.character(this_node_id))
+    if (length(row_idx) == 0) next
+    code_vector <- binary_embedding[row_idx, ]
+
     nn <- get_nearest_neighbors(
-      binary_embedding = binary_embedding,
-      book_idx         = this_node_id,
-      num_neighbors    = num_neighbors,
-      margin           = margin,
-      type             = type,        # if non-NULL, match query’s type
-      node_type        = node_type,   # required when type != NULL
-      book_ids         = book_ids
+      code_vector   = code_vector,
+      num_neighbors = num_neighbors,
+      margin        = margin,
+      type          = type,
+      node_type     = node_type
     )
 
     # Use neighbor node_ids to look up tag names
@@ -601,70 +640,17 @@ recommend_tags <- function(margin,
 ```
 ### test Recommend_tags
 ```{r}
-recs <- recommend_tags(0)
+recs <- recommend_tags(
+  margin        = 0,
+  num_neighbors = 25,
+  type          = "tag",        # or NULL
+  node_type     = node_types
+)
 ```
 
 ## Given a tag, what books should it go on that don't currently have it?
 
-### test get nearest neighbors
-```{r}
-# # Test direct feature similarity (alternative approach)
-# # Try a book with more common tags
-# test_book_id <- "12243"  # This book had "@Ken Brooks" tag from earlier tests
-# 
-# # Find the book in the spectral dataset
-# # test_book_idx <- book_ids[test_book_id]
-# 
-# # book_id -> node_id 
-# test_book_idx <- book_ids %>% 
-#   dplyr::filter(book_id == as.numeric(test_book_id)) %>%
-#   dplyr::pull(node_id)
-# 
-# neighbors <- get_nearest_neighbors(binary_embedding, test_book_idx, 100)
-# 
-# # 1) Build helper tables (all node_id as character to avoid type mismatches)
-# node_types_chr <- node_types %>% mutate(node_id = as.character(node_id))
-# book_ids_chr   <- book_ids   %>% mutate(node_id = as.character(node_id))
-# tag_names_chr  <- tag_names  %>% mutate(node_id = as.character(node_id))
-# 
-# # Existing tags per *book_id*
-# existing_tags_df <- get_existing_tags(eav)   # cols: id (book_id), existing_tags (list)
-# 
-# # Map *node_id* -> (book_id, collapsed_tags)
-# book_tags_by_node <- book_ids_chr %>%
-#   left_join(existing_tags_df, by = c("book_id" = "id")) %>%
-#   mutate(tags_str = vapply(existing_tags, function(x) paste(x, collapse = ", "),
-#                            FUN.VALUE = character(1L))) %>%
-#   select(node_id, book_id, tags_str)
-# 
-# # 2) Build a tidy neighbors table (ranked)
-# nbrs <- neighbors  # from get_nearest_neighbors(...)
-# nbrs_df <- tibble(
-#   rank     = seq_along(nbrs$node_ids),
-#   node_id  = as.character(nbrs$node_ids),
-#   distance = nbrs$distances
-# ) %>%
-#   left_join(node_types_chr, by = "node_id") %>%                  # adds 'type'
-#   left_join(book_tags_by_node, by = "node_id") %>%               # adds 'book_id', 'tags_str'
-#   left_join(tag_names_chr %>% rename(tag_label = tag_name), by = "node_id") %>%  # adds 'tag_label'
-#   mutate(label = dplyr::case_when(
-#     type == "book" ~ paste0("book_id=", book_id,
-#                             ifelse(is.na(tags_str) | tags_str == "", "",
-#                                    paste0(" : tags=[", tags_str, "]"))),
-#     type == "tag"  ~ paste0("tag=", tag_label),
-#     TRUE           ~ paste0("type=", coalesce(type, "NA"))
-#   )) %>%
-#   select(rank, node_id, type, book_id, tag_label, tags_str, label, distance) %>%
-#   arrange(rank)
-# 
-# # 3) Print (no global row index)
-# for (i in seq_len(nrow(nbrs_df))) {
-#   cat(sprintf("%3d: %s : distance=%s\n",
-#               nbrs_df$rank[i],
-#               nbrs_df$label[i],
-#               nbrs_df$distance[i]))
-# }
-```
+
 
 
 # End
