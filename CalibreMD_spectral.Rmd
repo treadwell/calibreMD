@@ -223,7 +223,7 @@ plot(g_viz, layout = eigvecs[, 1:2], vertex.size = 4, vertex.label = NA,
      edge.width = abs(E(g_viz)$weight) + .2)
 ```
 
-## Iterative quantization (optional)
+## Iterative quantization
 
 * Rotate the embeddings to minimize quantization error (like PCA?)
 * In PCA rotate feature space to explain the most variance
@@ -240,8 +240,7 @@ iterative_quantization <- function(X, n_iter = 25) {
   # Step 1: Zero-center
   X_centered <- scale(X, center = TRUE, scale = FALSE)
 
-  # Step 2: Optional PCA (skip if X already low-dimensional)
-  # SVD of centered matrix
+  # Step 2: PCA via SVD of centered matrix
   svd_X <- svd(X_centered)
   V <- svd_X$v  # principal directions
 
@@ -252,7 +251,7 @@ iterative_quantization <- function(X, n_iter = 25) {
   R <- diag(ncol(X))
 
   for (i in 1:n_iter) {
-    # Step 5: Compute binary code
+    # Step 5: Compute binary code in {-1, +1}
     B <- sign(X_pca %*% R)
 
     # Step 6: Solve for optimal R using SVD
@@ -261,22 +260,15 @@ iterative_quantization <- function(X, n_iter = 25) {
     R <- svd_C$u %*% t(svd_C$v)
   }
 
-  # Final binary codes and rotation
-  list(binary_code = sign(X_pca %*% R), rotation = R)
+  # Final binary codes in {0,1} as integer matrix (uint8-like)
+  B_final <- sign(X_pca %*% R)
+  storage.mode(B_final) <- "integer"
+  B01 <- ifelse(B_final > 0L, 1L, 0L)
+  mode(B01) <- "integer"
+  B01
 }
 
-# Option 1: Use iterative quantization (current approach)
-itq_result <- iterative_quantization(eigvecs)
-binary_embedding <- itq_result$binary_code  # contains -1/+1 codes per book (unpacked)
-# rotation_matrix <- itq_result$rotation
-
-# Option 2: Simple binary encoding (alternative approach)
-# binary_embedding <- sign(eigvecs)  # Simple sign-based binary encoding
-
-rownames(binary_embedding) <- node_types$node_id
-
-# Simpler approach below uses Hamming distance directly in R; no packed embedding required
-
+binary_embedding <- iterative_quantization(eigvecs)  # uint8-like 0/1 integer matrix
 ```
 
 ## Check binary embeddings
@@ -390,7 +382,7 @@ cat("Top 10 most common tags:\n")
 print(tag_counts %>% head(10))
 ```
 
-## Unified metadata builder (not yet integrated)
+## Unified metadata builder
 
 ```{r}
 # Build a single metadata tibble with unified lookups by node_id
@@ -419,10 +411,10 @@ build_unified_metadata <- function(eav, book_ids, tag_names, node_types, binary_
     node_type = as.character(node_types$type)
   )
 
-  # row_id mapping: by construction rownames(binary_embedding) == node_id
+  # row_id mapping: by construction row index/order equals node_id
   row_map <- tibble::tibble(
-    node_id = suppressWarnings(as.integer(rownames(binary_embedding))),
-    row_id  = suppressWarnings(as.integer(rownames(binary_embedding)))
+    node_id = as.integer(node_types$node_id),
+    row_id  = as.integer(node_types$node_id)
   )
 
   # Book-side metadata
@@ -453,17 +445,15 @@ unified_meta <- build_unified_metadata(eav, book_ids, tag_names, node_types, bin
 
 ## API design
 
-* given a db, produce a codebook that projects books and tags into a common embedding space
+* Given a db, produce a codebook that projects books and tags into a common embedding space
 * Given a book, show me recommended tags at each margin (distance)
 * Given a tag, show me which books it should be in at each margin
 * Give me the optimal tags for a book
-* Give me the books that should optimally have this tag
+* Give me the books that should optimally have a specified tag (or tags)
 * Recommend tag nesting (if it's a suffix, recommend the unexploded tag)
 * Given a codebook, learn mappings from raw features to codes
 
-Notes
-* check classic version for functions
-## Helper: Get existing tags for each book
+## Fn: Get existing tags for each book
 
 ```{r}
 get_existing_tags <- function(eav) {
@@ -475,41 +465,47 @@ get_existing_tags <- function(eav) {
 }
 ```
 
-## Get nearest neighbors
-
-Refactor:
-
-1. Formalize entity metadata lookup (node_type, book_id, tag_name) from node_id
-2. Remove global references throughout
-3. Iterative Quantization must return uint8 matrix of 0s and 1s
-4. Add a helper function to create a queryable index from the uint8 matrix
-  a. must be a Hamming-based index, either LSH or flat
-5. get_nearest_neighbors() should accept existing filtering arguments as well as the index and metadata lookup structures.
-6. Recommend_tags() should not do individual NN searches, it should use an index-provided all_neighborhood() function
-
+## Fn: Get nearest neighbors
 
 ```{r}
 # Simple Hamming-based nearest neighbors (pure R, no Python interop)
 get_nearest_neighbors <- function(code_vector,
+                                  index = NULL,
+                                  binary_embedding = NULL,
+                                  unified_meta,
                                   num_neighbors = NULL,
                                   margin = NULL,
-                                  type = NULL,
-                                  node_type = NULL) {
+                                  type = NULL) {
   stopifnot(is.numeric(code_vector))
-  stopifnot(exists("binary_embedding"), is.matrix(binary_embedding))
+  if (is.null(index)) stopifnot(is.matrix(binary_embedding))
 
-  # Hamming distance to all rows
-  diffs <- binary_embedding != matrix(rep(code_vector, nrow(binary_embedding)), nrow(binary_embedding), byrow = TRUE)
-  distances <- rowSums(diffs)
+  # If a prebuilt Hamming index is provided, use it
+  if (!is.null(index)) {
+    res <- hamming_search(
+      index        = index,
+      code_vector  = code_vector,
+      k            = num_neighbors,
+      margin       = margin,
+      type         = type,
+      unified_meta = unified_meta
+    )
+    return(res)
+  }
+
+  # Efficient Hamming distance for 0/1 data without large temporaries
+  sx <- rowSums(binary_embedding)
+  sy <- sum(code_vector)
+  dot <- as.numeric(binary_embedding %*% code_vector)
+  distances <- sx + sy - 2 * dot
 
   # Candidate set
   candidates <- seq_len(nrow(binary_embedding))
 
   # Type filter: row index equals node_id by construction
   if (!is.null(type)) {
-    stopifnot(!is.null(node_type), all(c("node_id", "type") %in% names(node_type)))
-    same_type_ids <- node_type$node_id[node_type$type == type]
-    candidates <- candidates[candidates %in% same_type_ids]
+    stopifnot(all(c("row_id", "node_type") %in% names(unified_meta)))
+    row_types <- unified_meta$node_type[match(seq_len(nrow(binary_embedding)), unified_meta$row_id)]
+    candidates <- candidates[!is.na(row_types) & row_types == type]
   }
 
   # Margin filter
@@ -533,7 +529,128 @@ get_nearest_neighbors <- function(code_vector,
 }
 ```
 
-## Main: Recommend tags
+## Fn: Hamming index
+
+```{r}
+# Build a queryable flat Hamming index from a 0/1 integer matrix
+# Returns a lightweight list with matrix and node_id mapping
+build_hamming_index <- function(binary_embedding, unified_meta = NULL) {
+  stopifnot(is.matrix(binary_embedding))
+  node_ids <- if (!is.null(unified_meta) && all(c("node_id", "row_id") %in% names(unified_meta))) {
+    unified_meta$node_id[match(seq_len(nrow(binary_embedding)), unified_meta$row_id)]
+  } else {
+    seq_len(nrow(binary_embedding))
+  }
+  list(
+    data = binary_embedding,
+    node_ids = as.integer(node_ids)
+  )
+}
+
+# Query the flat Hamming index
+hamming_search <- function(index,
+                           code_vector,
+                           k = NULL,
+                           margin = NULL,
+                           type = NULL,
+                           unified_meta = NULL) {
+  stopifnot(is.list(index), is.matrix(index$data), is.numeric(code_vector))
+  X <- index$data
+  # Efficient Hamming distances for 0/1 data:
+  # d(x,y) = sum(x) + sum(y) - 2 * x·y
+  sx <- rowSums(X)
+  sy <- sum(code_vector)
+  dot <- as.numeric(X %*% code_vector)
+  distances <- sx + sy - 2 * dot
+
+  candidates <- seq_len(nrow(X))
+
+  # Optional type filter using unified metadata mapping
+  if (!is.null(type)) {
+    stopifnot(!is.null(unified_meta), all(c("node_id", "node_type") %in% names(unified_meta)))
+    cand_node_ids <- index$node_ids[candidates]
+    cand_types <- unified_meta$node_type[match(cand_node_ids, unified_meta$node_id)]
+    keep <- !is.na(cand_types) & cand_types == type
+    candidates <- candidates[keep]
+  }
+
+  # Optional margin filter
+  if (!is.null(margin)) {
+    stopifnot(is.numeric(margin), margin >= 0)
+    candidates <- candidates[distances[candidates] <= margin]
+  }
+
+  if (length(candidates) == 0) return(list(node_ids = integer(0), distances = numeric(0)))
+
+  ord <- order(distances[candidates], candidates)
+  candidates <- candidates[ord]
+
+  if (!is.null(k) && length(candidates) > k) {
+    candidates <- candidates[seq_len(as.integer(k))]
+  }
+
+  list(node_ids = index$node_ids[candidates], distances = distances[candidates])
+}
+
+# Compute neighborhoods for all rows using the index (vectorized by blocks)
+all_neighborhoods <- function(index,
+                              k,
+                              margin = NULL,
+                              type = NULL,
+                              unified_meta = NULL,
+                              block_size = 512) {
+  stopifnot(is.list(index), is.matrix(index$data))
+  X <- index$data
+  n <- nrow(X)
+
+  # Precompute sums for fast Hamming
+  sx <- rowSums(X)
+
+  # Optional type mask
+  type_mask <- rep(TRUE, n)
+  if (!is.null(type)) {
+    stopifnot(!is.null(unified_meta), all(c("node_id", "node_type") %in% names(unified_meta)))
+    types <- unified_meta$node_type[match(index$node_ids, unified_meta$node_id)]
+    type_mask <- !is.na(types) & types == type
+  }
+
+  results_ids <- vector("list", n)
+  results_dist <- vector("list", n)
+
+  for (start in seq(1, n, by = block_size)) {
+    end <- min(start + block_size - 1L, n)
+    Q <- X[start:end, , drop = FALSE]
+    sy <- rowSums(Q)
+    dot <- X %*% t(Q)                   # n x b
+    # Hamming distances for all pairs in block
+    # d = sx + sy - 2*dot, broadcasting sy by column
+    D <- sweep(matrix(sx, nrow = n, ncol = ncol(dot)), 2, sy, `+`) - 2 * dot
+
+    # Apply optional type and margin filters
+    if (!all(type_mask)) {
+      D[!type_mask, ] <- Inf
+    }
+    if (!is.null(margin)) {
+      D[D > margin] <- Inf
+    }
+
+    # For each query in block, take top-k
+    for (j in seq_len(ncol(D))) {
+      dcol <- D[, j]
+      ord <- order(dcol, seq_len(n), na.last = NA)
+      if (is.finite(k)) {
+        ord <- ord[seq_len(min(k, length(ord)))]
+      }
+      results_ids[[start + j - 1L]] <- index$node_ids[ord]
+      results_dist[[start + j - 1L]] <- dcol[ord]
+    }
+  }
+
+  list(node_ids = results_ids, distances = results_dist)
+}
+```
+
+## Fn: Recommend tags
 ```{r}
 # Assumes you have:
 # - binary_embedding : matrix
@@ -545,14 +662,18 @@ get_nearest_neighbors <- function(code_vector,
 recommend_tags <- function(margin,
                            num_neighbors = NULL,
                            type = NULL,
-                           node_type = NULL,
-                           faiss_index) {
+                           unified_meta,
+                           book_ids,
+                           tag_names,
+                           existing_tags_df,
+                           binary_embedding,
+                           index = NULL) {
   stopifnot(all(c("node_id", "book_id") %in% names(book_ids)))
   stopifnot(all(c("node_id", "tag_name") %in% names(tag_names)))
+  stopifnot(!is.null(index))
 
   results_rows <- list()
-  # Precompute existing tags per book_id
-  existing_tags_df <- get_existing_tags(eav)
+  # existing_tags_df provided by caller
 
   # Helper: promote bare segment to its longest hierarchical path found in tag_names
   to_full_path <- function(tag_vector) {
@@ -585,41 +706,36 @@ recommend_tags <- function(margin,
     paths[keep]
   }
 
-  for (i in seq_len(nrow(book_ids))) {
-    this_node_id <- book_ids$node_id[i]
+  # Compute neighborhoods once using the index
+  k_val <- if (is.null(num_neighbors)) nrow(index$data) else as.integer(num_neighbors)
+  all_nbrs <- all_neighborhoods(
+    index        = index,
+    k            = k_val,
+    margin       = margin,
+    type         = type,
+    unified_meta = unified_meta
+  )
+
+  # Map each book to its row_id (which aligns with index rows)
+  book_row_ids <- unified_meta$row_id[match(book_ids$node_id, unified_meta$node_id)]
+
+  for (i in seq_along(book_row_ids)) {
+    row_idx <- book_row_ids[i]
+    if (is.na(row_idx) || row_idx <= 0L) next
     this_book_id <- book_ids$book_id[i]
 
-    # Locate query code vector by node_id
-    row_idx <- which(rownames(binary_embedding) == as.character(this_node_id))
-    if (length(row_idx) == 0) next
-    code_vector <- binary_embedding[row_idx, ]
+    nbr_ids <- all_nbrs$node_ids[[row_idx]]
+    if (length(nbr_ids) == 0) next
 
-    nn <- get_nearest_neighbors(
-      code_vector   = code_vector,
-      num_neighbors = num_neighbors,
-      margin        = margin,
-      type          = type,
-      node_type     = node_type
-    )
-
-    # Use neighbor node_ids to look up tag names
-    if (length(nn$node_ids) == 0) {
-      rec_tags <- character(0)
-    } else {
-      rec_tags <- tag_names %>%
-        dplyr::filter(node_id %in% nn$node_ids) %>%
-        dplyr::pull(tag_name) %>%
-        unique()
-    }
+    tag_lookup <- unified_meta$tag_name[match(nbr_ids, unified_meta$node_id)]
+    rec_tags <- unique(stats::na.omit(tag_lookup))
 
     if (length(rec_tags) > 0) {
-      # Promote to full hierarchical paths and keep only deepest
       rec_tags <- prune_to_leaf(to_full_path(rec_tags))
       # Remove tags already on this book
-      this_existing <- existing_tags_df %>%
-        dplyr::filter(id == this_book_id) %>%
-        dplyr::pull(existing_tags)
-      existing_vec <- if (length(this_existing) > 0) unlist(this_existing, use.names = FALSE) else character(0)
+      idx_match <- which(existing_tags_df$id == this_book_id)
+      this_existing <- if (length(idx_match) > 0) existing_tags_df$existing_tags[idx_match][[1]] else NULL
+      existing_vec <- if (!is.null(this_existing)) unlist(this_existing, use.names = FALSE) else character(0)
       new_tags <- setdiff(rec_tags, existing_vec)
 
       if (length(new_tags) > 0) {
@@ -638,19 +754,88 @@ recommend_tags <- function(margin,
   dplyr::bind_rows(results_rows)
 }
 ```
-### test Recommend_tags
+## Get recommendations
 ```{r}
+existing_tags_df <- get_existing_tags(eav)
+unified_meta <- build_unified_metadata(eav, book_ids, tag_names, node_types, binary_embedding, md_db)
+# Optional: build flat Hamming index for faster queries
+hamming_idx <- build_hamming_index(binary_embedding, unified_meta)
 recs <- recommend_tags(
-  margin        = 0,
-  num_neighbors = 25,
-  type          = "tag",        # or NULL
-  node_type     = node_types
+  margin             = 0,
+  num_neighbors      = 25,
+  type               = "tag",        # or NULL
+  unified_meta       = unified_meta,
+  book_ids           = book_ids,
+  tag_names          = tag_names,
+  existing_tags_df   = existing_tags_df,
+  binary_embedding   = binary_embedding,
+  index              = hamming_idx
 )
 ```
 
-## Given a tag, what books should it go on that don't currently have it?
+### sanity checks
+```{r}
+cat("\n=== Recommendation sanity checks ===\n")
+cat("Total recommendations:", nrow(recs), "\n")
 
+books_with_recs <- if (nrow(recs) > 0) dplyr::n_distinct(recs$book_id) else 0L
+cat(
+  "Books with at least one rec:", books_with_recs,
+  "of", nrow(book_ids),
+  sprintf("(%.1f%%)", if (nrow(book_ids) > 0) 100 * books_with_recs / nrow(book_ids) else 0),
+  "\n"
+)
 
+if (nrow(recs) > 0) {
+  recs_per_book <- recs %>% dplyr::count(book_id, name = "n")
+  cat("\nRecs per book summary:\n")
+  print(summary(recs_per_book$n))
 
+  cat("\nTop 5 books by rec count:\n")
+  print(
+    recs_per_book %>%
+      dplyr::arrange(dplyr::desc(n)) %>%
+      dplyr::slice_head(n = 5)
+  )
 
+  cat("\nTop 10 recommended tags:\n")
+  print(
+    recs %>%
+      dplyr::count(tag_name, sort = TRUE, name = "n") %>%
+      dplyr::slice_head(n = 10)
+  )
+
+  # Sample with titles if available
+  if (exists("unified_meta")) {
+    sample_rows <- recs %>%
+      dplyr::left_join(
+        unified_meta %>% dplyr::select(book_id, book_title) %>% dplyr::distinct() %>% dplyr::mutate(book_id = as.character(book_id)),
+        by = "book_id"
+      ) %>%
+      dplyr::arrange(book_id, dplyr::desc(tag_name)) %>%
+      dplyr::slice_head(n = 10)
+    cat("\nSample recommendations (up to 10):\n")
+    print(sample_rows)
+  }
+}
+```
 # End
+
+# Refactor
+Refactor:
+
+1. Formalize entity metadata lookup (node_type, book_id, tag_name) from node_id
+2. Remove global references throughout
+3. Iterative Quantization must return uint8 matrix of 0s and 1s
+4. Add a helper function to create a queryable index from the uint8 matrix
+  a. must be a Hamming-based index, either LSH or flat
+5. get_nearest_neighbors() should accept existing filtering arguments as well as the index and metadata lookup structures.
+6. Recommend_tags() should not do individual NN searches, it should use an index-provided all_neighborhood() function
+
+# Open questions:
+
+* Given a tag, what books should it go on that don't currently have it?
+
+
+
+
