@@ -813,24 +813,26 @@ if (nrow(recs) > 0) {
 
 # Refactor
 
-1. Formalize entity metadata lookup (node_type, book_id, tag_name) from node_id
-2. Remove global references throughout
-3. Iterative Quantization must return uint8 matrix of 0s and 1s
-4. Add a helper function to create a queryable index from the uint8 matrix
+4. Revise build_hamming to do a and b. Create a queryable index from the uint8 matrix
   a. must be a Hamming-based index, either LSH or flat
-5. get_nearest_neighbors() should accept existing filtering arguments as well as the index and metadata lookup structures.
-6. Recommend_tags() should not do individual NN searches, it should use an index-provided all_neighborhood() function
-
+  b. index = annoy.create()
+  c. index.add(binary_embedding)
+  d. neighborhoods = index.all_neighborhoods()
+  e. neighbors = index.search(vector)
+5. Make all other calls use this (recommend_tags())
 
 # API design
 
 * Given a db, produce a codebook that projects books and tags into a common embedding space
 * Given a book, show me recommended tags at each margin (distance)
 * Given a tag, show me which books it should be in at each margin
-* Give me the optimal tags for a book
-* Give me the books that should optimally have a specified tag (or tags)
-* Recommend tag nesting (if it's a suffix, recommend the unexploded tag)
-* Given a codebook, learn mappings from raw features to codes
+* Give me the optimal tags for a book (from spectral codebook)
+* Give me the books that should optimally have a specified tag(s) (from spectral codebook)
+* Learn mappings from raw features to spectral codebook
+* Reproject all books into a new codebook using learned mappings
+* create unified metadata for the new codebook
+* regenerate optimal tags
+* (optional) enrich the graph with features
 
 
 
