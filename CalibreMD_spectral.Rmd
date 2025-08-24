@@ -223,7 +223,7 @@ plot(g_viz, layout = eigvecs[, 1:2], vertex.size = 4, vertex.label = NA,
      edge.width = abs(E(g_viz)$weight) + .2)
 ```
 
-## Iterative quantization
+## Fn: Iterative quantization
 
 * Rotate the embeddings to minimize quantization error (like PCA?)
 * In PCA rotate feature space to explain the most variance
@@ -271,7 +271,7 @@ iterative_quantization <- function(X, n_iter = 25) {
 binary_embedding <- iterative_quantization(eigvecs)  # uint8-like 0/1 integer matrix
 ```
 
-## Check binary embeddings
+### Check binary embeddings
 ```{r}
 cat("binary_embedding dimensions:", dim(binary_embedding), "\n")
 cat("NA count:", sum(is.na(binary_embedding)), "\n")
@@ -382,7 +382,7 @@ cat("Top 10 most common tags:\n")
 print(tag_counts %>% head(10))
 ```
 
-## Unified metadata builder
+## Fn: Unified metadata builder
 
 ```{r}
 # Build a single metadata tibble with unified lookups by node_id
@@ -442,16 +442,6 @@ unified_meta <- build_unified_metadata(eav, book_ids, tag_names, node_types, bin
 ```
 
 # Get new tags
-
-## API design
-
-* Given a db, produce a codebook that projects books and tags into a common embedding space
-* Given a book, show me recommended tags at each margin (distance)
-* Given a tag, show me which books it should be in at each margin
-* Give me the optimal tags for a book
-* Give me the books that should optimally have a specified tag (or tags)
-* Recommend tag nesting (if it's a suffix, recommend the unexploded tag)
-* Given a codebook, learn mappings from raw features to codes
 
 ## Fn: Get existing tags for each book
 
@@ -822,7 +812,6 @@ if (nrow(recs) > 0) {
 # End
 
 # Refactor
-Refactor:
 
 1. Formalize entity metadata lookup (node_type, book_id, tag_name) from node_id
 2. Remove global references throughout
@@ -832,9 +821,16 @@ Refactor:
 5. get_nearest_neighbors() should accept existing filtering arguments as well as the index and metadata lookup structures.
 6. Recommend_tags() should not do individual NN searches, it should use an index-provided all_neighborhood() function
 
-# Open questions:
 
-* Given a tag, what books should it go on that don't currently have it?
+# API design
+
+* Given a db, produce a codebook that projects books and tags into a common embedding space
+* Given a book, show me recommended tags at each margin (distance)
+* Given a tag, show me which books it should be in at each margin
+* Give me the optimal tags for a book
+* Give me the books that should optimally have a specified tag (or tags)
+* Recommend tag nesting (if it's a suffix, recommend the unexploded tag)
+* Given a codebook, learn mappings from raw features to codes
 
 
 
