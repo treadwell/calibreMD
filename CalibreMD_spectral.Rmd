@@ -809,6 +809,154 @@ if (nrow(recs) > 0) {
   }
 }
 ```
+# Inference
+
+## FN: Train encoder
+```{r}
+train_encoder <- function(X, Y){
+  requireNamespace("xgboost", quietly = TRUE)
+  models <- list()
+  for (bit in seq_len(ncol(Y))) {
+    # Extract label vector and convert to numeric
+    y <- as.numeric(Y[, bit])
+    # Construct DMatrix using sparse feature matrix
+    dtrain <- xgboost::xgb.DMatrix(data = X, label = y)
+    models[[bit]] <- xgboost::xgboost(
+      data = dtrain,
+      objective = "binary:logistic",
+      eval_metric = "logloss",
+      nrounds = 50,
+      verbose = 0
+    )
+  }
+  models
+}
+```
+
+## FN: Encode books
+```{r}
+encode_books <- function(models, X, threshold = 0.5) {
+  requireNamespace("xgboost", quietly = TRUE)
+
+  n_bits <- length(models)
+  n_obs  <- nrow(X)
+
+  dX <- xgboost::xgb.DMatrix(data = X)
+  out <- matrix(0L, nrow = n_obs, ncol = n_bits)
+
+  for (b in seq_len(n_bits)) {
+    preds <- stats::predict(models[[b]], newdata = dX)
+
+    # Convert logits to probabilities if outside [0,1]
+    if (any(preds < 0 | preds > 1, na.rm = TRUE)) {
+      preds <- plogis(preds)
+    }
+
+    out[, b] <- as.integer(preds >= threshold)
+  }
+
+  colnames(out) <- if (!is.null(names(models)) && all(nzchar(names(models)))) {
+    names(models)
+  } else {
+    paste0("bit_", seq_len(n_bits))
+  }
+
+  out
+}
+```
+
+## FN: Prep data set
+```{r}
+prep_encoder_data <- function(eav, unified_meta, binary_embedding){
+  
+  # produce filtered list of node_ids corresponding to books
+  
+  ids <- unified_meta %>% 
+    filter(type == book) %>% 
+    arrange(node_id) %>% 
+    pull(node_id)
+  
+  # filter the binary embeddings to include the node_ids in that order (Y)
+  
+  Y <- if(is.null(binary_embedding)) {
+    NULL
+  } else {
+    binary_embedding[ids, , drop = FALSE]
+  }
+  
+  # generate a sparse matrix of the observable features for each node_id (X)
+
+  book_features <- eav %>% 
+    inner_join(unified_meta, by = c("id", "book_id")) %>% 
+    filter(node_id %in% ids,
+           !feature %in% c("tag", "title_original")) %>% 
+    mutate(feature = paste(feature, value, sep = ": ")) %>% 
+    select(id, feature) %>% 
+    distinct() %>% 
+    arrange(id)
+  
+  #### STOPPED Here  ### construct X
+  
+  common_ids <- sort(intersect(book_tags$id, book_features$id))
+  
+  book_tags <- book_tags %>%
+    filter(id %in% common_ids)
+  
+  book_features <- book_features %>%
+    filter(id %in% common_ids)
+  
+  # Create index mappings for row (id) and columns (tag or feature)
+  id_levels <- sort(unique(common_ids)) # ensures same order in both matrices
+  
+  # Sparse tag matrix
+  tag_levels <- sort(unique(book_tags$tag))
+  tag_matrix <- Matrix::sparseMatrix(
+    i = match(book_tags$id, id_levels),
+    j = match(book_tags$tag, tag_levels),
+    x = 1L,
+    dims = c(length(id_levels), length(tag_levels)),
+    dimnames = list(id_levels, tag_levels)
+  )
+  
+  # Sparse feature matrix
+  feature_levels <- sort(unique(book_features$feature))
+  feature_matrix <- Matrix::sparseMatrix(
+    i = match(book_features$id, id_levels),
+    j = match(book_features$feature, feature_levels),
+    x = 1L,
+    dims = c(length(id_levels), length(feature_levels)),
+    dimnames = list(id_levels, feature_levels)
+  )
+  
+  list(
+    X = feature_matrix,
+    Y = tag_matrix,
+    book_features = book_features
+  )
+}
+```
+
+
+## Build X and Y
+```{r}
+# X_train
+
+# Y_train
+# X_test
+# Y_test (predictions)
+
+```
+
+
+## Evaluate (measure hamming between in-sample spectral and in-sample projected codes)
+```{r}
+
+```
+
+
+
+
+
 # End
 
 # Refactor
@@ -828,11 +976,24 @@ if (nrow(recs) > 0) {
 * Given a tag, show me which books it should be in at each margin
 * Give me the optimal tags for a book (from spectral codebook)
 * Give me the books that should optimally have a specified tag(s) (from spectral codebook)
+
+## to do
 * Learn mappings from raw features to spectral codebook
 * Reproject all books into a new codebook using learned mappings
 * create unified metadata for the new codebook
 * regenerate optimal tags
 * (optional) enrich the graph with features
+
+# Applying tags to untagged books
+
+* get an untagged book
+* use semantic embedding to find similar books
+* get those neighbor codes
+* interpolate the code from the untagged book from the neighbors (this is more involved than it sounds...)
+  * self taught hashing
+  * anchor graph hashing
+  * self taught hashing with clever feature engineering (landmark-augmented self-taught hashing)
+* find nearest tag using the same old approach above
 
 
 
