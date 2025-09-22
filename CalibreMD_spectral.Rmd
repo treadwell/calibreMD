@@ -202,13 +202,15 @@ eig <- RSpectra::eigs_sym(
   target  = 0
 )
 
-# Remove the trivial eigenpair (usually eigenvalue ~0)
-# Optionally filter based on a tolerance if needed
-eigvals <- eig$values[-1]
-eigvecs <- eig$vectors[, -1]
+eigvecs <- D_inv_sqrt %*% eig$vectors
+eigvals <- eig$values
 
+eigvecs <- eigvecs[,-(k+1)]
+eigvals <- eigvals[-(k+1)]
+ord <- order(eigvals)
+eigvals <- eigvals[ord]
+eigvecs <- eigvecs[, ord]
 eigvals
-
 ```
 ## Visualize graph
 
@@ -218,7 +220,8 @@ library(igraph)
 # Simplify graph for visualization (remove loops and multiple edges)
 g_viz <- simplify(g, remove.multiple = TRUE, remove.loops = TRUE, edge.attr.comb = "sum")
 
-plot(g_viz, layout = eigvecs[, 1:2], vertex.size = 4, vertex.label = NA,
+plot(g_viz, layout = as.matrix(eigvecs[, 1:2, drop = FALSE]),
+     vertex.size = 4, vertex.label = NA,
      edge.color = ifelse(E(g_viz)$weight > 0, "steelblue", "firebrick"),
      edge.width = abs(E(g_viz)$weight) + .2)
 ```
@@ -291,9 +294,9 @@ cat("Unique binary codes:", nrow(unique_codes), "out of", nrow(binary_embedding)
 cat("Diversity ratio:", round(nrow(unique_codes) / nrow(binary_embedding), 3), "\n")
 
 # Check eigvecs diversity
-unique_eigvecs <- unique(as.data.frame(round(eigvecs, 6)))
-cat("Unique eigenvector codes (rounded to 6 digits):", nrow(unique_eigvecs), "out of", nrow(eigvecs), "books\n")
-cat("Eigenvector diversity ratio:", round(nrow(unique_eigvecs) / nrow(eigvecs), 3), "\n")
+# unique_eigvecs <- unique(as.data.frame(round(eigvecs, 6)))
+# cat("Unique eigenvector codes (rounded to 6 digits):", nrow(unique_eigvecs), "out of", nrow(eigvecs), "books\n")
+# cat("Eigenvector diversity ratio:", round(nrow(unique_eigvecs) / nrow(eigvecs), 3), "\n")
 
 # Check if the problem is in the graph construction
 cat("\n=== GRAPH ANALYSIS ===\n")
@@ -867,73 +870,95 @@ encode_books <- function(models, X, threshold = 0.5) {
 
 ## FN: Prep data set
 ```{r}
-prep_encoder_data <- function(eav, unified_meta, binary_embedding){
+prep_encoder_data <- function(eav, unified_meta, binary_embedding = NULL, indexed_features = NULL) {
+  # deps: dplyr, tidyr, purrr, Matrix
   
-  # produce filtered list of node_ids corresponding to books
+  # 1) Book node_ids in a stable order
+  ids <- unified_meta %>%
+    dplyr::filter(type == "book") %>%
+    dplyr::arrange(.data$node_id) %>%
+    dplyr::pull(.data$node_id)
   
-  ids <- unified_meta %>% 
-    filter(type == book) %>% 
-    arrange(node_id) %>% 
-    pull(node_id)
-  
-  # filter the binary embeddings to include the node_ids in that order (Y)
-  
-  Y <- if(is.null(binary_embedding)) {
-    NULL
-  } else {
-    binary_embedding[ids, , drop = FALSE]
+  # 2) Align Y (binary_embedding) to ids (rows = ids). Robust to missing rownames/ids.
+  Y <- NULL
+  if (!is.null(binary_embedding)) {
+    # If rownames exist, use them; otherwise assume rows are already in node_id order
+    if (!is.null(rownames(binary_embedding))) {
+      rix <- match(ids, rownames(binary_embedding))
+      Y <- binary_embedding[rix, , drop = FALSE]
+    } else {
+      # best effort: index by integer positions if dimensions match
+      if (nrow(binary_embedding) >= length(ids)) {
+        Y <- binary_embedding[seq_along(ids), , drop = FALSE]
+      } else {
+        stop("binary_embedding has no rownames and too few rows to align with ids.")
+      }
+    }
   }
   
-  # generate a sparse matrix of the observable features for each node_id (X)
-
-  book_features <- eav %>% 
-    inner_join(unified_meta, by = c("id", "book_id")) %>% 
-    filter(node_id %in% ids,
-           !feature %in% c("tag", "title_original")) %>% 
-    mutate(feature = paste(feature, value, sep = ": ")) %>% 
-    select(id, feature) %>% 
-    distinct() %>% 
-    arrange(id)
+  # 3) Feature rows (book_id, feature, value) restricted to book ids and de-duped
+  #    Assumptions:
+  #      - eav has columns: book_id, feature, value
+  #      - unified_meta has node_id (book nodes) and type
+  #    If your eav uses 'id' instead of 'book_id', change 'book_id' below to 'id'.
+  book_features <- eav %>%
+    dplyr::inner_join(
+      unified_meta %>% dplyr::filter(type == "book") %>% dplyr::select(book_id, node_id),
+      by = dplyr::join_by(book_id == book_id)
+    ) %>%
+    dplyr::filter(!.data$feature %in% c("tag", "title_original")) %>%
+    dplyr::select(node_id, feature, value) %>%
+    dplyr::distinct()
   
-  #### STOPPED Here  ### construct X
+  # 4) Create (or reuse) the enumerated feature-value dictionary
+  #    Columns: feature, value, key, id_feature
+  if (is.null(indexed_features)) {
+    indexed_features <- book_features %>%
+      dplyr::mutate(key = paste0(.data$feature, "=", as.character(.data$value))) %>%
+      dplyr::distinct(.data$feature, .data$value, .data$key) %>%
+      dplyr::arrange(.data$feature, .data$value) %>%
+      dplyr::mutate(id_feature = dplyr::row_number()) %>%
+      dplyr::select(.data$feature, .data$value, .data$key, .data$id_feature)
+  } else {
+    # ensure required columns exist
+    req_cols <- c("feature", "value", "key", "id_feature")
+    if (!all(req_cols %in% colnames(indexed_features))) {
+      stop("indexed_features must contain columns: feature, value, key, id_feature")
+    }
+  }
   
-  common_ids <- sort(intersect(book_tags$id, book_features$id))
-  
-  book_tags <- book_tags %>%
-    filter(id %in% common_ids)
-  
-  book_features <- book_features %>%
-    filter(id %in% common_ids)
-  
-  # Create index mappings for row (id) and columns (tag or feature)
-  id_levels <- sort(unique(common_ids)) # ensures same order in both matrices
-  
-  # Sparse tag matrix
-  tag_levels <- sort(unique(book_tags$tag))
-  tag_matrix <- Matrix::sparseMatrix(
-    i = match(book_tags$id, id_levels),
-    j = match(book_tags$tag, tag_levels),
-    x = 1L,
-    dims = c(length(id_levels), length(tag_levels)),
-    dimnames = list(id_levels, tag_levels)
+  # 5) Build sparse X: rows = ids (node_id order), cols = id_feature (feature=value)
+  #    One nonzero (1) per (book_id, feature=value) pair.
+  #    Map book_id -> row index, key -> column index
+  #    Use Matrix::sparseMatrix
+  row_index <- match(book_features$node_id, ids)
+  col_index <- match(
+    paste0(book_features$feature, "=", as.character(book_features$value)),
+    indexed_features$key
   )
   
-  # Sparse feature matrix
-  feature_levels <- sort(unique(book_features$feature))
-  feature_matrix <- Matrix::sparseMatrix(
-    i = match(book_features$id, id_levels),
-    j = match(book_features$feature, feature_levels),
-    x = 1L,
-    dims = c(length(id_levels), length(feature_levels)),
-    dimnames = list(id_levels, feature_levels)
+  if (!requireNamespace("Matrix", quietly = TRUE)) {
+    stop("Package 'Matrix' is required to build the sparse matrix X.")
+  }
+  
+  X <- Matrix::sparseMatrix(
+    i = row_index,
+    j = col_index,
+    x = 1,
+    dims = c(length(ids), nrow(indexed_features)),
+    dimnames = list(ids, indexed_features$key)
   )
   
+  # 6) Return IDs, dictionary, X, and Y
   list(
-    X = feature_matrix,
-    Y = tag_matrix,
-    book_features = book_features
+    ids = ids,
+    features = indexed_features,  # dictionary of columns in X
+    X = X,                        # sparse one-hot feature matrix (ids x feature=value)
+    Y = Y                         # aligned target/embedding (optional)
   )
 }
+
+### STOP  TEST THIS!  FIX Y, review all comments
 ```
 
 
