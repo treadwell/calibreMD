@@ -81,7 +81,7 @@ Process for #2:
   b. Other clusters will look good (subsets, supersets, or other)
 3. Find representative features for the clusters (chi-Sq or mutual information)
 
-## Build the graph
+## Build the training graph
 
 ```{r}
 # unique tags
@@ -91,7 +91,7 @@ Process for #2:
 # if book has tag, positive edge
 
 # book-tag mapping
-book_tags <- eav %>%
+book_tags_train <- eav %>%
   filter(feature == "tag") %>%
   mutate(tag_name = value,
          book_id = id) %>%
@@ -100,31 +100,33 @@ book_tags <- eav %>%
   arrange(book_id)
 
 # distinct book_ids and add a node_id (simply 0-n)
-book_ids <- book_tags %>% 
+book_ids_test <- tibble(book_id = numeric())
+
+book_ids_train <- book_tags_train %>% 
   select(book_id) %>% 
   distinct() %>% 
   mutate(node_id = dplyr::row_number())
 
 # distinct tags and add a node_id (n+1 to...)
-tag_names <- book_tags %>% 
+tag_names_train <- book_tags_train %>% 
   select(tag_name) %>% 
   distinct() %>% 
-  mutate(node_id = dplyr::row_number() + length(book_ids$book_id))
+  mutate(node_id = dplyr::row_number() + length(book_ids_train$book_id))
 
 # unified node_id to type lookup (answers is a node a book or a tag?)
-node_types <- data_frame(node_id = seq(nrow(book_ids) + nrow(tag_names)),
-                         type = dplyr::if_else(node_id <= length(book_ids$book_id), "book", "tag"))
+node_types_train <- data_frame(node_id = seq(nrow(book_ids_train) + nrow(tag_names_train)),
+                         type = dplyr::if_else(node_id <= length(book_ids_train$book_id), "book", "tag"))
 
-positive_edges <- book_tags %>%               # book_id, tag name
-  inner_join(book_ids,  by = "book_id")  %>%   # adds column `node_id`
+positive_edges_train <- book_tags_train %>%               # book_id, tag name
+  inner_join(book_ids_train,  by = "book_id")  %>%   # adds column `node_id`
   rename(node_a = node_id) %>%                # book → node_a
-  inner_join(tag_names, by = "tag_name") %>%   # adds 2nd `node_id`
+  inner_join(tag_names_train, by = "tag_name") %>%   # adds 2nd `node_id`
   rename(node_b = node_id) %>%                # tag  → node_b
   select(node_a, node_b)                      # keep only the edge list
 
 g <- igraph::graph_from_data_frame(
-        d         = positive_edges,
-        vertices  = node_types$node_id,     # all nodes, even isolates
+        d         = positive_edges_train,
+        vertices  = node_types_train$node_id,     # all nodes, even isolates
         directed  = FALSE
       )
 
@@ -140,18 +142,20 @@ reps <- tibble(
 
 new_edges <- as.vector(rbind(reps[-length(reps)], reps[-1]))
 
-positive_edges <- bind_rows(positive_edges, tibble(
+positive_edges_train <- bind_rows(positive_edges_train, tibble(
   node_a = new_edges[c(TRUE,  FALSE)],   # odd positions
   node_b = new_edges[c(FALSE, TRUE)]     # even positions
 ))
 
 # Create graph with weights (all positive edges have weight 1)
 g <- igraph::graph_from_data_frame(
-  positive_edges %>% mutate(weight = 1), 
-  vertices  = node_types$node_id,
+  positive_edges_train %>% mutate(weight = 1), 
+  vertices  = node_types_train$node_id,
   directed = FALSE
 )
 igraph::components(g)$no
+
+# NOTE: abstract testing functions to avoid polluting global scope
 
 ```
 
@@ -181,7 +185,7 @@ d_vals <- Matrix::rowSums(abs(A))
 D_inv_sqrt <- Matrix::Diagonal(x = 1 / sqrt(d_vals))
 
 # Step 4: Compute signed normalized Laplacian
-L_norm <- Matrix::Diagonal(n = nrow(node_types)) - D_inv_sqrt %*% A %*% D_inv_sqrt
+L_norm <- Matrix::Diagonal(n = nrow(node_types_train)) - D_inv_sqrt %*% A %*% D_inv_sqrt
 
 ```
 
@@ -271,27 +275,27 @@ iterative_quantization <- function(X, n_iter = 25) {
   B01
 }
 
-binary_embedding <- iterative_quantization(eigvecs)  # uint8-like 0/1 integer matrix
+binary_embedding_train <- iterative_quantization(eigvecs)  # uint8-like 0/1 integer matrix
 ```
 
 ### Check binary embeddings
 ```{r}
-cat("binary_embedding dimensions:", dim(binary_embedding), "\n")
-cat("NA count:", sum(is.na(binary_embedding)), "\n")
-cat("NaN count:", sum(is.nan(binary_embedding)), "\n")
-cat("Inf count:", sum(is.infinite(binary_embedding)), "\n")
-cat("Value range:", range(binary_embedding, na.rm = TRUE), "\n")
-cat("First 10 rownames:", head(rownames(binary_embedding), 10), "\n")
-cat("Total rownames:", length(rownames(binary_embedding)), "\n")
-print(binary_embedding[1:5, 1:5])
+cat("binary_embedding dimensions:", dim(binary_embedding_train), "\n")
+cat("NA count:", sum(is.na(binary_embedding_train)), "\n")
+cat("NaN count:", sum(is.nan(binary_embedding_train)), "\n")
+cat("Inf count:", sum(is.infinite(binary_embedding_train)), "\n")
+cat("Value range:", range(binary_embedding_train, na.rm = TRUE), "\n")
+cat("First 10 rownames:", head(rownames(binary_embedding_train), 10), "\n")
+cat("Total rownames:", length(rownames(binary_embedding_train)), "\n")
+print(binary_embedding_train[1:5, 1:5])
 
 # Check embedding diversity
 cat("\n=== EMBEDDING DIVERSITY ANALYSIS ===\n")
 
 # Count unique binary codes
-unique_codes <- unique(as.data.frame(binary_embedding))
-cat("Unique binary codes:", nrow(unique_codes), "out of", nrow(binary_embedding), "books\n")
-cat("Diversity ratio:", round(nrow(unique_codes) / nrow(binary_embedding), 3), "\n")
+unique_codes <- unique(as.data.frame(binary_embedding_train))
+cat("Unique binary codes:", nrow(unique_codes), "out of", nrow(binary_embedding_train), "books\n")
+cat("Diversity ratio:", round(nrow(unique_codes) / nrow(binary_embedding_train), 3), "\n")
 
 # Check eigvecs diversity
 # unique_eigvecs <- unique(as.data.frame(round(eigvecs, 6)))
@@ -300,9 +304,9 @@ cat("Diversity ratio:", round(nrow(unique_codes) / nrow(binary_embedding), 3), "
 
 # Check if the problem is in the graph construction
 cat("\n=== GRAPH ANALYSIS ===\n")
-cat("Books:", nrow(book_ids), "\n")
-cat("Tags:", nrow(tag_names), "\n")
-cat("Positive edges:", nrow(positive_edges), "\n")
+cat("Books:", nrow(book_ids_train), "\n")
+cat("Tags:", nrow(tag_names_train), "\n")
+cat("Positive edges:", nrow(positive_edges_train), "\n")
 cat("Graph edges (including multiples):", igraph::ecount(g), "\n")
 
 cmp <- igraph::components(g)
@@ -318,7 +322,7 @@ cat("Multiple edges:", multiples_count, "\n")
 # Degree by node type
 deg <- igraph::degree(g, mode = "all")
 deg_df <- tibble::tibble(node_id = as.integer(names(deg)), degree = as.numeric(deg)) |>
-  dplyr::left_join(node_types, by = "node_id")
+  dplyr::left_join(node_types_train, by = "node_id")
 
 cat("\nDegree summary (books):\n")
 print(
@@ -353,7 +357,7 @@ top_tags <- deg_df |>
   dplyr::filter(type == "tag") |>
   dplyr::arrange(dplyr::desc(degree)) |>
   dplyr::slice(1:10) |>
-  dplyr::left_join(tag_names, by = "node_id") |>
+  dplyr::left_join(tag_names_train, by = "node_id") |>
   dplyr::select(tag_name, degree)
 cat("\nTop 10 tags by degree:\n")
 print(top_tags)
@@ -363,7 +367,7 @@ top_books <- deg_df |>
   dplyr::filter(type == "book") |>
   dplyr::arrange(dplyr::desc(degree)) |>
   dplyr::slice(1:10) |>
-  dplyr::left_join(book_ids, by = "node_id") |>
+  dplyr::left_join(book_ids_train, by = "node_id") |>
   dplyr::select(book_id, degree)
 cat("\nTop 10 books by degree:\n")
 print(top_books)
@@ -390,10 +394,13 @@ print(tag_counts %>% head(10))
 ```{r}
 # Build a single metadata tibble with unified lookups by node_id
 # Columns: node_id, node_type, row_id, book_id, book_title, tag_name, tag_origin
-build_unified_metadata <- function(eav, book_ids, tag_names, node_types, binary_embedding, md_db) {
-  stopifnot(is.data.frame(eav), is.data.frame(book_ids), is.data.frame(tag_names),
-            is.data.frame(node_types), is.matrix(binary_embedding))
-
+build_unified_metadata <- function(eav, 
+                                   book_ids, 
+                                   tag_names = NULL, 
+                                   node_types = NULL, 
+                                   binary_embedding = NULL, 
+                                   md_db = NULL) {
+  
   # Titles by book_id
   titles <- eav %>%
     dplyr::filter(feature == "title_original") %>%
@@ -401,47 +408,55 @@ build_unified_metadata <- function(eav, book_ids, tag_names, node_types, binary_
     dplyr::transmute(book_id = as.integer(id), book_title = as.character(value))
 
   # Original tag values from source DB (pre-explosion)
-  original_tag_values <- md_db %>%
-    load_eav() %>%
-    dplyr::filter(feature == "tag") %>%
-    dplyr::distinct(value) %>%
-    dplyr::pull(value) %>%
-    as.character()
+  original_tag_values <- NULL
+  if(!is.null(md_db)){
+    original_tag_values <- md_db %>%
+      load_eav() %>%
+      dplyr::filter(feature == "tag") %>%
+      dplyr::distinct(value) %>%
+      dplyr::pull(value) %>%
+      as.character()
+  }
+  if(is.null(node_types)){  # test data
+    # Book-side metadata
+    unified <- book_ids %>%
+      dplyr::transmute(book_id = as.integer(book_id)) %>%
+      dplyr::left_join(titles, by = "book_id")
+    
+  } else {  # training data
+    nodes <- tibble::tibble(
+      node_id   = as.integer(node_types$node_id),
+      node_type = as.character(node_types$type))
 
-  # Base node frame
-  nodes <- tibble::tibble(
-    node_id   = as.integer(node_types$node_id),
-    node_type = as.character(node_types$type)
-  )
+    # row_id mapping: by construction row index/order equals node_id
+    row_map <- tibble::tibble(
+      node_id = as.integer(node_types$node_id),
+      row_id  = as.integer(node_types$node_id))
 
-  # row_id mapping: by construction row index/order equals node_id
-  row_map <- tibble::tibble(
-    node_id = as.integer(node_types$node_id),
-    row_id  = as.integer(node_types$node_id)
-  )
-
-  # Book-side metadata
-  books_meta <- book_ids %>%
-    dplyr::transmute(node_id = as.integer(node_id), book_id = as.integer(book_id)) %>%
-    dplyr::left_join(titles, by = "book_id")
-
-  # Tag-side metadata
-  tags_meta <- tag_names %>%
-    dplyr::transmute(node_id = as.integer(node_id), tag_name = as.character(tag_name)) %>%
-    dplyr::mutate(tag_origin = ifelse(tag_name %in% original_tag_values, "original", "exploded"))
-
-  # Unified
-  unified <- nodes %>%
-    dplyr::left_join(row_map,  by = "node_id") %>%
-    dplyr::left_join(books_meta, by = "node_id") %>%
-    dplyr::left_join(tags_meta,  by = "node_id") %>%
-    dplyr::arrange(node_id)
+    # Book-side metadata
+    books_meta <- book_ids %>%
+      dplyr::transmute(node_id = as.integer(node_id), book_id = as.integer(book_id)) %>%
+      dplyr::left_join(titles, by = "book_id")
+  
+    # Tag-side metadata
+    tags_meta <- tag_names %>%
+      dplyr::transmute(node_id = as.integer(node_id), tag_name = as.character(tag_name)) %>%
+      dplyr::mutate(tag_origin = ifelse(tag_name %in% original_tag_values, "original", "exploded"))
+  
+    # Unified
+    unified <- nodes %>%
+      dplyr::left_join(row_map,  by = "node_id") %>%
+      dplyr::left_join(books_meta, by = "node_id") %>%
+      dplyr::left_join(tags_meta,  by = "node_id") %>%
+      dplyr::arrange(node_id)
+  }
 
   unified
 }
 
 # Example:
-unified_meta <- build_unified_metadata(eav, book_ids, tag_names, node_types, binary_embedding, md_db)
+unified_meta_train <- build_unified_metadata(eav, book_ids_train, tag_names_train, node_types_train, binary_embedding_train, md_db)
+unified_meta_test <- build_unified_metadata(eav, book_ids_test)
 ```
 
 # Get new tags
@@ -750,18 +765,18 @@ recommend_tags <- function(margin,
 ## Get recommendations
 ```{r}
 existing_tags_df <- get_existing_tags(eav)
-unified_meta <- build_unified_metadata(eav, book_ids, tag_names, node_types, binary_embedding, md_db)
+unified_meta_train <- build_unified_metadata(eav, book_ids, tag_names, node_types, binary_embedding_train, md_db)
 # Optional: build flat Hamming index for faster queries
-hamming_idx <- build_hamming_index(binary_embedding, unified_meta)
+hamming_idx <- build_hamming_index(binary_embedding_train, unified_meta_train)
 recs <- recommend_tags(
   margin             = 0,
   num_neighbors      = 25,
   type               = "tag",        # or NULL
-  unified_meta       = unified_meta,
+  unified_meta       = unified_meta_train,
   book_ids           = book_ids,
   tag_names          = tag_names,
   existing_tags_df   = existing_tags_df,
-  binary_embedding   = binary_embedding,
+  binary_embedding   = binary_embedding_train,
   index              = hamming_idx
 )
 ```
@@ -799,17 +814,18 @@ if (nrow(recs) > 0) {
   )
 
   # Sample with titles if available
-  if (exists("unified_meta")) {
-    sample_rows <- recs %>%
-      dplyr::left_join(
-        unified_meta %>% dplyr::select(book_id, book_title) %>% dplyr::distinct() %>% dplyr::mutate(book_id = as.character(book_id)),
-        by = "book_id"
-      ) %>%
-      dplyr::arrange(book_id, dplyr::desc(tag_name)) %>%
-      dplyr::slice_head(n = 10)
-    cat("\nSample recommendations (up to 10):\n")
-    print(sample_rows)
-  }
+  sample_rows <- recs %>%
+    dplyr::left_join(
+      unified_meta_train %>% 
+        dplyr::select(book_id, book_title) %>% 
+        dplyr::distinct() %>% 
+        dplyr::mutate(book_id = as.character(book_id)),
+      by = "book_id"
+    ) %>%
+    dplyr::arrange(book_id, dplyr::desc(tag_name)) %>%
+    dplyr::slice_head(n = 10)
+  cat("\nSample recommendations (up to 10):\n")
+  print(sample_rows)
 }
 ```
 # Inference
@@ -820,6 +836,7 @@ train_encoder <- function(X, Y){
   requireNamespace("xgboost", quietly = TRUE)
   models <- list()
   for (bit in seq_len(ncol(Y))) {
+    print(paste("bit", bit, "training"))
     # Extract label vector and convert to numeric
     y <- as.numeric(Y[, bit])
     # Construct DMatrix using sparse feature matrix
@@ -868,119 +885,121 @@ encode_books <- function(models, X, threshold = 0.5) {
 }
 ```
 
+## FN: Evaluate projections
+```{r}
+evaluate_projection <- function(Y0, Y1, prefix = 0){
+  # Y0, Y1: integer (0/1) matrices with identical dims; rows = nodes, cols = bits
+  if (!is.matrix(Y0) || !is.matrix(Y1)) stop("Y0 and Y1 must be matrices.")
+  if (!all(dim(Y0) == dim(Y1))) stop("Y0 and Y1 must have the same dimensions.")
+  if (anyNA(Y0) || anyNA(Y1)) stop("Y0 and Y1 must not contain NA values.")
+  if (!all(Y0 %in% c(0L, 1L)) || !all(Y1 %in% c(0L, 1L)))
+    stop("Y0 and Y1 must contain only 0/1 values.")
+
+  p <- ncol(Y0)
+  if (p == 0L) stop("Matrices must have at least one column (bit).")
+
+  # determine number of bits to compare
+  if (prefix <= 0) {
+    k <- p
+  } else {
+    if (prefix > p) stop("prefix cannot be larger than the number of columns")
+    k <- prefix
+  }
+
+  # restrict matrices to first k columns
+  Y0_sub <- Y0[, seq_len(k), drop = FALSE]
+  Y1_sub <- Y1[, seq_len(k), drop = FALSE]
+
+  # Hamming distance per row = number of differing bits
+  avg_frac_dist <- mean(rowSums(abs(Y0_sub - Y1_sub))) / k
+
+  # Normalize to [0,1] so that 1.0 means avg Hamming distance = 0
+  score <- 1 - avg_frac_dist
+  as.numeric(score)
+}
+
+```
+
 ## FN: Prep data set
 ```{r}
 prep_encoder_data <- function(eav, unified_meta, binary_embedding = NULL, indexed_features = NULL) {
-  # deps: dplyr, tidyr, purrr, Matrix
-  
-  # 1) Book node_ids in a stable order
-  ids <- unified_meta %>%
-    dplyr::filter(type == "book") %>%
-    dplyr::arrange(.data$node_id) %>%
-    dplyr::pull(.data$node_id)
-  
-  # 2) Align Y (binary_embedding) to ids (rows = ids). Robust to missing rownames/ids.
-  Y <- NULL
-  if (!is.null(binary_embedding)) {
-    # If rownames exist, use them; otherwise assume rows are already in node_id order
-    if (!is.null(rownames(binary_embedding))) {
-      rix <- match(ids, rownames(binary_embedding))
-      Y <- binary_embedding[rix, , drop = FALSE]
-    } else {
-      # best effort: index by integer positions if dimensions match
-      if (nrow(binary_embedding) >= length(ids)) {
-        Y <- binary_embedding[seq_along(ids), , drop = FALSE]
-      } else {
-        stop("binary_embedding has no rownames and too few rows to align with ids.")
-      }
-    }
-  }
-  
-  # 3) Feature rows (book_id, feature, value) restricted to book ids and de-duped
-  #    Assumptions:
-  #      - eav has columns: book_id, feature, value
-  #      - unified_meta has node_id (book nodes) and type
-  #    If your eav uses 'id' instead of 'book_id', change 'book_id' below to 'id'.
-  book_features <- eav %>%
-    dplyr::inner_join(
-      unified_meta %>% dplyr::filter(type == "book") %>% dplyr::select(book_id, node_id),
-      by = dplyr::join_by(book_id == book_id)
-    ) %>%
-    dplyr::filter(!.data$feature %in% c("tag", "title_original")) %>%
-    dplyr::select(node_id, feature, value) %>%
-    dplyr::distinct()
-  
-  # 4) Create (or reuse) the enumerated feature-value dictionary
-  #    Columns: feature, value, key, id_feature
-  if (is.null(indexed_features)) {
+  if(is.null(binary_embedding)){
+    book_features <- eav %>%
+      dplyr::inner_join(
+        unified_meta %>%
+          dplyr::select(book_id),
+        by = dplyr::join_by(id == book_id)
+      ) %>%
+      dplyr::filter(!.data$feature %in% c("tag", "title_original")) %>%
+      dplyr::select(book_id, feature, value) %>%
+      dplyr::distinct()
+    row_index <- unified_meta$book_id
+    col_index <- match(
+      paste0(book_features$feature, "=", as.character(book_features$value)),
+      indexed_features$key)
+  } else {
+    ids <- unified_meta %>%
+      dplyr::filter(node_type == "book") %>%
+      dplyr::arrange(.data$node_id) %>%
+      dplyr::pull(.data$node_id)
+    Y <- binary_embedding[ids, , drop = FALSE]
+    book_features <- eav %>%
+      dplyr::inner_join(
+        unified_meta %>% 
+          dplyr::filter(node_type == "book") %>% 
+          dplyr::select(book_id, node_id),
+        by = dplyr::join_by(id == book_id)
+      ) %>%
+      dplyr::filter(!.data$feature %in% c("tag", "title_original")) %>%
+      dplyr::select(node_id, feature, value) %>%
+      dplyr::distinct()
     indexed_features <- book_features %>%
       dplyr::mutate(key = paste0(.data$feature, "=", as.character(.data$value))) %>%
       dplyr::distinct(.data$feature, .data$value, .data$key) %>%
       dplyr::arrange(.data$feature, .data$value) %>%
       dplyr::mutate(id_feature = dplyr::row_number()) %>%
       dplyr::select(.data$feature, .data$value, .data$key, .data$id_feature)
-  } else {
-    # ensure required columns exist
-    req_cols <- c("feature", "value", "key", "id_feature")
-    if (!all(req_cols %in% colnames(indexed_features))) {
-      stop("indexed_features must contain columns: feature, value, key, id_feature")
-    }
+    row_index <- match(book_features$node_id, ids)
+    col_index <- match(
+      paste0(book_features$feature, "=", as.character(book_features$value)),
+      indexed_features$key)
   }
-  
-  # 5) Build sparse X: rows = ids (node_id order), cols = id_feature (feature=value)
-  #    One nonzero (1) per (book_id, feature=value) pair.
-  #    Map book_id -> row index, key -> column index
-  #    Use Matrix::sparseMatrix
-  row_index <- match(book_features$node_id, ids)
-  col_index <- match(
-    paste0(book_features$feature, "=", as.character(book_features$value)),
-    indexed_features$key
-  )
-  
-  if (!requireNamespace("Matrix", quietly = TRUE)) {
-    stop("Package 'Matrix' is required to build the sparse matrix X.")
-  }
-  
   X <- Matrix::sparseMatrix(
     i = row_index,
     j = col_index,
     x = 1,
     dims = c(length(ids), nrow(indexed_features)),
-    dimnames = list(ids, indexed_features$key)
-  )
-  
-  # 6) Return IDs, dictionary, X, and Y
+    dimnames = list(ids, indexed_features$key))
   list(
     ids = ids,
     features = indexed_features,  # dictionary of columns in X
     X = X,                        # sparse one-hot feature matrix (ids x feature=value)
-    Y = Y                         # aligned target/embedding (optional)
-  )
+    Y = Y)
 }
-
-### STOP  TEST THIS!  FIX Y, review all comments
 ```
 
 
 ## Build X and Y
 ```{r}
-# X_train
-
-# Y_train
-# X_test
-# Y_test (predictions)
-
+train_data <- prep_encoder_data(eav, unified_meta_train, binary_embedding_train)
+# test_data <- prep_encoder_data(eav, unified_meta_test, NULL, train_data$features)
 ```
-
+# Train Encoder
+```{r}
+model <- train_encoder(train_data$X, train_data$Y)
+train_data$Y_projected <- encode_books(model, train_data$X)
+# test_data$Y_projected <- encode_books(model, test_data$X)
+```
 
 ## Evaluate (measure hamming between in-sample spectral and in-sample projected codes)
 ```{r}
-
+train_acc <- evaluate_projection(train_data$Y, train_data$Y_projected, 1)
+print(paste("Training accuracy", train_acc))
 ```
 
-
-
-
+Next steps
+* Evaluate projected codes: Spearman correlation between recommendations from in-sample code and out-of-sample (original) code
+* Evaluate test codes
 
 # End
 
@@ -1002,7 +1021,7 @@ prep_encoder_data <- function(eav, unified_meta, binary_embedding = NULL, indexe
 * Give me the optimal tags for a book (from spectral codebook)
 * Give me the books that should optimally have a specified tag(s) (from spectral codebook)
 
-## to do
+## To do
 * Learn mappings from raw features to spectral codebook
 * Reproject all books into a new codebook using learned mappings
 * create unified metadata for the new codebook
