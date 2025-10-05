@@ -197,7 +197,7 @@ L_norm <- Matrix::Diagonal(n = nrow(node_types_train)) - D_inv_sqrt %*% A %*% D_
 
 ```{r}
 # Set number of nontrivial eigenpairs desired
-k <- 256 
+k <- 64
 
 eig <- RSpectra::eigs_sym(
   L_norm,
@@ -215,6 +215,21 @@ ord <- order(eigvals)
 eigvals <- eigvals[ord]
 eigvecs <- eigvecs[, ord]
 eigvals
+
+# to do: build a line graph showing eigenvalues to help select the optimal count
+
+plot(
+  seq_along(eigvals),
+  eigvals,
+  type = "b",
+  pch = 19,
+  xlab = "Eigenvalue Index",
+  ylab = "Eigenvalue",
+  main = "Spectrum of Normalized Laplacian"
+)
+abline(v = which.max(diff(eigvals) > 0.05), col = "red", lty = 2) # optional heuristic marker
+
+# Looks like 7, 10, 12
 ```
 ## Visualize graph
 
@@ -765,7 +780,11 @@ recommend_tags <- function(margin,
 ## Get recommendations
 ```{r}
 existing_tags_df <- get_existing_tags(eav)
-unified_meta_train <- build_unified_metadata(eav, book_ids, tag_names, node_types, binary_embedding_train, md_db)
+unified_meta_train <- build_unified_metadata(eav, 
+                                             book_ids_train, 
+                                             tag_names_train, 
+                                             node_types_train, 
+                                             binary_embedding_train, md_db)
 # Optional: build flat Hamming index for faster queries
 hamming_idx <- build_hamming_index(binary_embedding_train, unified_meta_train)
 recs <- recommend_tags(
@@ -773,8 +792,8 @@ recs <- recommend_tags(
   num_neighbors      = 25,
   type               = "tag",        # or NULL
   unified_meta       = unified_meta_train,
-  book_ids           = book_ids,
-  tag_names          = tag_names,
+  book_ids           = book_ids_train,
+  tag_names          = tag_names_train,
   existing_tags_df   = existing_tags_df,
   binary_embedding   = binary_embedding_train,
   index              = hamming_idx
@@ -789,8 +808,8 @@ cat("Total recommendations:", nrow(recs), "\n")
 books_with_recs <- if (nrow(recs) > 0) dplyr::n_distinct(recs$book_id) else 0L
 cat(
   "Books with at least one rec:", books_with_recs,
-  "of", nrow(book_ids),
-  sprintf("(%.1f%%)", if (nrow(book_ids) > 0) 100 * books_with_recs / nrow(book_ids) else 0),
+  "of", nrow(book_ids_train),
+  sprintf("(%.1f%%)", if (nrow(book_ids_train) > 0) 100 * books_with_recs / nrow(book_ids_train) else 0),
   "\n"
 )
 
@@ -995,11 +1014,53 @@ train_data$Y_projected <- encode_books(model, train_data$X)
 ```{r}
 train_acc <- evaluate_projection(train_data$Y, train_data$Y_projected, 1)
 print(paste("Training accuracy", train_acc))
+
+# Also build functions to do a manual check
 ```
 
+Done
+1. generate graph
+2. generate in-sample codes
+3. learn projections
+4. project codes
+5. evaluate accuracy of projected codes
+
 Next steps
-* Evaluate projected codes: Spearman correlation between recommendations from in-sample code and out-of-sample (original) code
-* Evaluate test codes
+6. find the margin that best captures ground-truth labeling for in-sample codes
+7. find the margin that best captures ground-truth labeling for projected codes
+8. for each in-sample book, considering the known labels as the first list, create a 2nd and 3rd labels list using the in-sample codes plus margin and projected codes plus margin
+9. for each in-sample book compute Jaccard similarity between the ground truth label set and each of the two sets above (labels from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
+10. for each in-sample tag, considering the known books as the first list, create a 2nd and 3rd books list using the in-sample codes plus margin and projected codes plus margin.
+11. for each in-sample tag compute Jaccard similarity between the ground truth book set and each of the two sets above (books from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
+
+## 6. find the margin that best captures ground-truth labeling for in-sample codes
+```{r}
+
+```
+## 7. find the margin that best captures ground-truth labeling for projected codes
+```{r}
+
+```
+
+## 8. for each in-sample book, considering the known labels as the first list, create a 2nd and 3rd labels list using the in-sample codes plus margin and projected codes plus margin
+```{r}
+
+```
+
+## 9. for each in-sample book compute Jaccard similarity between the ground truth label set and each of the two sets above (labels from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
+```{r}
+
+```
+
+## 10. for each in-sample tag, considering the known books as the first list, create a 2nd and 3rd books list using the in-sample codes plus margin and projected codes plus margin.
+```{r}
+
+```
+
+## 11. for each in-sample tag compute Jaccard similarity between the ground truth book set and each of the two sets above (books from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
+```{r}
+
+```
 
 # End
 
