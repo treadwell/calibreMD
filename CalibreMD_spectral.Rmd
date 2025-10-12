@@ -1005,12 +1005,20 @@ train_data <- prep_encoder_data(eav, unified_meta_train, binary_embedding_train)
 ```
 # Train Encoder
 ```{r}
-model <- train_encoder(train_data$X, train_data$Y)
+# predict spectral codes from the raw features
+model <- train_encoder(train_data$X, train_data$Y)  # Y is spectral codes
+
+# project spectral codes from training data using the encoder
 train_data$Y_projected <- encode_books(model, train_data$X)
 # test_data$Y_projected <- encode_books(model, test_data$X)
 ```
 
 ## Evaluate (measure hamming between in-sample spectral and in-sample projected codes)
+
+* How well do the codes we're predicting match the actual codes?
+* This is self-taught hashing
+* We need to increase the accuracy...
+
 ```{r}
 train_acc <- evaluate_projection(train_data$Y, train_data$Y_projected, 1)
 print(paste("Training accuracy", train_acc))
@@ -1034,20 +1042,481 @@ Next steps
 11. for each in-sample tag compute Jaccard similarity between the ground truth book set and each of the two sets above (books from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
 
 ## 6. find the margin that best captures ground-truth labeling for in-sample codes
+
+* This works with the in-sample books only.
 ```{r}
+## 6. Find the integer Hamming threshold that best captures ground-truth labeling (in-sample codes)
+
+suppressPackageStartupMessages({
+  library(dplyr); library(tibble); library(Matrix)
+})
+
+# ---- Guards & setup ---------------------------------------------------------
+stopifnot(
+  exists("train_data", inherits = FALSE),
+  !is.null(train_data$Y), !is.null(train_data$ids),
+  exists("book_tags_train", inherits = FALSE),
+  exists("book_ids_train",  inherits = FALSE),
+  exists("tag_names_train", inherits = FALSE)
+)
+
+Y <- as.matrix(train_data$Y)  # expected 0/1 codes (n x kbits)
+if (!all(Y %in% c(0,1))) stop("train_data$Y must be binary (0/1) for integer Hamming search.")
+storage.mode(Y) <- "integer"
+
+n_books <- nrow(Y)
+kbits   <- ncol(Y)            # e.g., 64
+
+# ---- Ground truth: two books are same-label if they share ≥1 training tag ---
+# Align rows of Y to node_ids
+row_index_map <- tibble(node_id = as.integer(train_data$ids),
+                        row_ix  = seq_len(n_books))
+
+# Map training (book_id, tag_name) -> Y row_ix via node_id
+bt_train <- book_tags_train %>%
+  inner_join(book_ids_train, by = "book_id") %>%
+  select(node_id, tag_name) %>%
+  inner_join(row_index_map, by = "node_id")
+
+# Stable tag order (not strictly required, but useful)
+tag_levels <- tag_names_train %>% arrange(node_id) %>% pull(tag_name)
+
+bt_train <- bt_train %>%
+  mutate(col_ix = match(tag_name, tag_levels)) %>%
+  filter(!is.na(row_ix), !is.na(col_ix))
+
+n_tags <- length(tag_levels)
+
+# Sparse book–tag incidence M (n_books x n_tags)
+M <- Matrix::sparseMatrix(
+  i = bt_train$row_ix, j = bt_train$col_ix, x = 1L,
+  dims = c(n_books, n_tags)
+)
+
+# Co-membership matrix G: TRUE if share ≥ 1 tag (ignore diagonal)
+G <- (M %*% Matrix::t(M)) > 0
+diag(G) <- FALSE
+
+# ---- Integer Hamming distances (bits that differ) ---------------------------
+# For 0/1 Y: d_H(i,j) = ones_i + ones_j - 2 * (Y_i · Y_j)
+ones <- Matrix::rowSums(Y)
+S    <- Y %*% Matrix::t(Y)  # shared 1-bits (n x n)
+D    <- (matrix(ones, n_books, n_books) +
+         matrix(ones, n_books, n_books, byrow = TRUE)) - 2 * S
+D    <- as.matrix(D)
+diag(D) <- NA_integer_
+
+# Upper triangle vectors for evaluation
+upper_idx <- upper.tri(D, diag = FALSE)
+dist_vec  <- as.numeric(D[upper_idx])         # integer in [0..kbits]
+truth_vec <- as.logical(G[upper_idx])         # ground truth (same-label)
+# Also keep similarity vector for downstream compatibility (NOT used here)
+sim_vec   <- 1 - (dist_vec / kbits)
+
+# ---- Sweep integer thresholds k = 0..kbits ----------------------------------
+k_vals <- 0:kbits
+prec <- rec <- f1 <- numeric(length(k_vals))
+
+for (i in seq_along(k_vals)) {
+  k_th <- k_vals[i]                 # threshold = max differing bits allowed
+  pred <- dist_vec <= k_th
+  TP <- sum(pred &  truth_vec, na.rm = TRUE)
+  FP <- sum(pred & !truth_vec, na.rm = TRUE)
+  FN <- sum(!pred &  truth_vec, na.rm = TRUE)
+
+  prec[i] <- if ((TP + FP) > 0) TP / (TP + FP) else NA_real_
+  rec[i]  <- if ((TP + FN) > 0) TP / (TP + FN) else NA_real_
+  f1[i]   <- if (is.na(prec[i]) || is.na(rec[i]) || (prec[i] + rec[i]) == 0)
+               NA_real_ else 2 * prec[i] * rec[i] / (prec[i] + rec[i])
+}
+
+best_i  <- which.max(f1)
+best_k  <- k_vals[best_i]          # ≤ best_k differing bits
+best_f1 <- f1[best_i]
+
+# Accuracy at the chosen integer threshold
+pred_best <- dist_vec <= best_k
+acc_best  <- mean(pred_best == truth_vec)
+
+# For later sections that expect a similarity margin in [0,1], provide equivalent:
+best_margin <- 1 - (best_k / kbits)  # DO NOT use for plotting here
+
+cat(sprintf("Best integer Hamming threshold: ≤ %d of %d bits differ | F1 = %.3f | Accuracy = %.3f\n",
+            best_k, kbits, best_f1, acc_best))
+
+# ---- Single chart: Precision / Recall / F1 vs Hamming distance (colored) ----
+plot(k_vals, f1, type = "l", lwd = 2, col = "firebrick",
+     ylim = c(0, 1),
+     xlab = "Maximum Hamming distance (bits that may differ)",
+     ylab = "Score",
+     main = "Precision, Recall, and F1 vs Hamming Distance Threshold")
+lines(k_vals, prec, lwd = 2, col = "steelblue")
+lines(k_vals, rec,  lwd = 2, col = "darkgreen")
+abline(v = best_k, lty = 2, col = "gray40")
+legend("bottomright",
+       legend = c("F1", "Precision", "Recall", sprintf("Best ≤ %d bits", best_k)),
+       col    = c("firebrick", "steelblue", "darkgreen", "gray40"),
+       lty    = c(1,1,1,2), lwd = c(2,2,2,1), bty = "n")
 
 ```
 ## 7. find the margin that best captures ground-truth labeling for projected codes
+
+* Looks at projected codes, so for when we take new books and project them.
+* Recognize that the margin will be larger and there will be more false positives.
+
 ```{r}
+## 7. Find the integer Hamming threshold that best captures ground-truth labeling (PROJECTED in-sample codes)
 
+suppressPackageStartupMessages({
+  library(dplyr); library(tibble); library(Matrix)
+})
+
+# ---- Guards -----------------------------------------------------------------
+stopifnot(
+  exists("train_data", inherits = FALSE),
+  !is.null(train_data$ids),
+  !is.null(train_data$Y_projected)
+)
+
+# Use PROJECTED codes; binarize at 0.5 if needed for Hamming
+Yp <- as.matrix(train_data$Y_projected)
+if (!all(Yp %in% c(0,1))) {
+  Yp <- (Yp >= 0.5) * 1L
+}
+storage.mode(Yp) <- "integer"
+
+n_books_p <- nrow(Yp)
+kbits_p   <- ncol(Yp)
+
+# ---- Ground truth (reuse from Section 6 or rebuild) -------------------------
+if (!exists("G", inherits = FALSE)) {
+  stopifnot(
+    exists("book_tags_train", inherits = FALSE),
+    exists("book_ids_train",  inherits = FALSE),
+    exists("tag_names_train", inherits = FALSE)
+  )
+  row_index_map <- tibble(node_id = as.integer(train_data$ids),
+                          row_ix  = seq_len(n_books_p))
+
+  bt_train <- book_tags_train %>%
+    inner_join(book_ids_train, by = "book_id") %>%
+    select(node_id, tag_name) %>%
+    inner_join(row_index_map, by = "node_id")
+
+  tag_levels <- tag_names_train %>% arrange(node_id) %>% pull(tag_name)
+
+  bt_train <- bt_train %>%
+    mutate(col_ix = match(tag_name, tag_levels)) %>%
+    filter(!is.na(row_ix), !is.na(col_ix))
+
+  n_tags <- length(tag_levels)
+
+  M <- Matrix::sparseMatrix(
+    i = bt_train$row_ix, j = bt_train$col_ix, x = 1L,
+    dims = c(n_books_p, n_tags)
+  )
+
+  G <- (M %*% Matrix::t(M)) > 0
+  diag(G) <- FALSE
+}
+
+# Pairwise upper-triangle ground-truth vector (same-label)
+upper_idx_p <- upper.tri(G, diag = FALSE)
+truth_vec   <- as.logical(G[upper_idx_p])   # reuse name for compatibility
+
+# ---- Integer Hamming distances for PROJECTED codes --------------------------
+# d_H(i,j) = ones_i + ones_j - 2 * (Y_i · Y_j)
+ones_p <- Matrix::rowSums(Yp)
+S_p    <- Yp %*% Matrix::t(Yp)
+D_p    <- (matrix(ones_p, n_books_p, n_books_p) +
+           matrix(ones_p, n_books_p, n_books_p, byrow = TRUE)) - 2 * S_p
+D_p    <- as.matrix(D_p)
+diag(D_p) <- NA_integer_
+
+dist_vec_p <- as.numeric(D_p[upper_idx_p])          # integers 0..kbits_p
+# Similarity kept only for downstream compatibility (not used for plotting)
+sim_vec_p  <- 1 - (dist_vec_p / kbits_p)
+
+stopifnot(is.numeric(dist_vec_p), all(dist_vec_p >= 0), all(dist_vec_p <= kbits_p))
+
+# ---- Sweep integer thresholds k = 0..kbits_p --------------------------------
+k_vals_p <- 0:kbits_p
+prec_p <- rec_p <- f1_p <- numeric(length(k_vals_p))
+
+for (i in seq_along(k_vals_p)) {
+  k_th <- k_vals_p[i]
+  pred <- dist_vec_p <= k_th
+  TP <- sum(pred &  truth_vec, na.rm = TRUE)
+  FP <- sum(pred & !truth_vec, na.rm = TRUE)
+  FN <- sum(!pred &  truth_vec, na.rm = TRUE)
+
+  prec_p[i] <- if ((TP + FP) > 0) TP / (TP + FP) else NA_real_
+  rec_p[i]  <- if ((TP + FN) > 0) TP / (TP + FN) else NA_real_
+  f1_p[i]   <- if (is.na(prec_p[i]) || is.na(rec_p[i]) || (prec_p[i] + rec_p[i]) == 0)
+                 NA_real_ else 2 * prec_p[i] * rec_p[i] / (prec_p[i] + rec_p[i])
+}
+
+best_i_p   <- which.max(f1_p)
+best_k_p   <- k_vals_p[best_i_p]           # ≤ best_k_p differing bits
+best_f1_p  <- f1_p[best_i_p]
+
+# Accuracy at the chosen integer threshold
+pred_best_p <- dist_vec_p <= best_k_p
+acc_best_p  <- mean(pred_best_p == truth_vec)
+
+# Provide equivalent similarity margin for later sections that expect it
+best_margin_p <- 1 - (best_k_p / kbits_p)
+
+cat(sprintf("Projected codes — best integer Hamming threshold: ≤ %d of %d bits differ | F1 = %.3f | Accuracy = %.3f\n",
+            best_k_p, kbits_p, best_f1_p, acc_best_p))
+
+# ---- Single chart: Precision / Recall / F1 vs Hamming distance (colored) ----
+plot(k_vals_p, f1_p, type = "l", lwd = 2, col = "firebrick",
+     ylim = c(0, 1),
+     xlab = "Maximum Hamming distance (bits that may differ)",
+     ylab = "Score",
+     main = "Precision, Recall, and F1 vs Hamming Distance (PROJECTED codes)")
+lines(k_vals_p, prec_p, lwd = 2, col = "steelblue")
+lines(k_vals_p, rec_p,  lwd = 2, col = "darkgreen")
+abline(v = best_k_p, lty = 2, col = "gray40")
+legend("bottomright",
+       legend = c("F1", "Precision", "Recall", sprintf("Best ≤ %d bits", best_k_p)),
+       col    = c("firebrick", "steelblue", "darkgreen", "gray40"),
+       lty    = c(1,1,1,2), lwd = c(2,2,2,1), bty = "n")
 ```
-
 ## 8. for each in-sample book, considering the known labels as the first list, create a 2nd and 3rd labels list using the in-sample codes plus margin and projected codes plus margin
 ```{r}
+## 8. Neighbor tag lists by book (integer Hamming; robust + self-check)
 
+suppressPackageStartupMessages({
+  library(dplyr); library(tibble); library(Matrix); library(purrr); library(tidyr); library(jsonlite)
+})
+
+# ------------------------ Guards & inputs ------------------------------------
+req_ok <- all(
+  exists("book_tags_train", inherits = FALSE),
+  exists("book_ids_train",  inherits = FALSE)
+)
+if (!req_ok) stop("Section 8 requires book_tags_train and book_ids_train in memory.")
+
+# Optional: try to load thresholds from calibration if not present
+if (!exists("best_k", inherits = FALSE) || !is.numeric(best_k)) {
+  if (file.exists("calibremd_margins_calibration.rds")) {
+    calibration <- readRDS("calibremd_margins_calibration.rds")
+    if (!is.null(calibration$in_sample$best_k)) best_k <- calibration$in_sample$best_k
+    if (is.null(best_k) || is.na(best_k))
+      stop("best_k not found; run Section 6 or provide calibremd_margins_calibration.rds.")
+  } else {
+    stop("best_k not found and calibremd_margins_calibration.rds is missing. Run Section 6 first.")
+  }
+}
+
+# Projected threshold is optional
+have_projected_threshold <- exists("best_k_p", inherits = FALSE) && is.numeric(best_k_p)
+
+# ------------------------ Align rows (books) ---------------------------------
+# We need the row order we will use throughout Section 8. Prefer train_data if present.
+if (exists("train_data", inherits = FALSE) && !is.null(train_data$ids)) {
+  node_ids <- as.integer(train_data$ids)
+} else if (exists("all_data", inherits = FALSE) && !is.null(all_data$ids)) {
+  node_ids <- as.integer(all_data$ids)  # fallback to a global codebook if you use one
+} else {
+  stop("Neither train_data$ids nor all_data$ids is available to define row order.")
+}
+
+row_map <- tibble(row_ix = seq_along(node_ids), node_id = node_ids) %>%
+  left_join(book_ids_train, by = "node_id") %>%
+  distinct(row_ix, node_id, book_id)
+
+if (any(is.na(row_map$book_id))) {
+  # Some node_ids in the code matrix are not present in book_ids_train (training mapping).
+  # Keep only rows we can map back to a book_id.
+  keep <- which(!is.na(row_map$book_id))
+  if (length(keep) == 0) stop("No overlap between code rows and training book_ids.")
+  row_map <- row_map[keep, , drop = FALSE]
+}
+
+n_books <- nrow(row_map)
+
+# ------------------------ Get code matrices ----------------------------------
+# In-sample codes (Y): must be binary 0/1
+# Prefer train_data$Y in the same node_id order
+get_codes <- function(candidate_Y, candidate_ids, target_node_ids) {
+  if (is.null(candidate_Y) || is.null(candidate_ids)) return(NULL)
+  idx <- match(target_node_ids, as.integer(candidate_ids))
+  if (all(is.na(idx))) return(NULL)
+  candidate_Y[idx[!is.na(idx)], , drop = FALSE]
+}
+
+Y <- NULL
+if (exists("train_data", inherits = FALSE) && !is.null(train_data$Y)) {
+  Y <- get_codes(train_data$Y, train_data$ids, row_map$node_id)
+}
+if (is.null(Y) && exists("all_data", inherits = FALSE) && !is.null(all_data$Y)) {
+  Y <- get_codes(all_data$Y, all_data$ids, row_map$node_id)
+}
+if (is.null(Y)) stop("Cannot find a code matrix (Y). Ensure train_data$Y or all_data$Y is available.")
+
+Y <- as.matrix(Y)
+if (!all(Y %in% c(0,1))) stop("Y must be binary 0/1 for integer Hamming.")
+storage.mode(Y) <- "integer"
+kbits <- ncol(Y)
+
+# Optional projected codes (Yp)
+Yp <- NULL
+if (exists("train_data", inherits = FALSE) && !is.null(train_data$Y_projected)) {
+  Yp <- get_codes(train_data$Y_projected, train_data$ids, row_map$node_id)
+} else if (exists("all_data", inherits = FALSE) && !is.null(all_data$Y_projected)) {
+  Yp <- get_codes(all_data$Y_projected, all_data$ids, row_map$node_id)
+}
+if (!is.null(Yp)) {
+  Yp <- as.matrix(Yp)
+  if (!all(Yp %in% c(0,1))) Yp <- (Yp >= 0.5) * 1L
+  storage.mode(Yp) <- "integer"
+}
+
+# ------------------------ Build tag incidence M ------------------------------
+# If tag_names_train exists we use it to stabilize columns; else infer from book_tags_train
+if (exists("tag_names_train", inherits = FALSE)) {
+  tag_levels <- tag_names_train %>% arrange(node_id) %>% pull(tag_name)
+} else {
+  tag_levels <- book_tags_train %>% distinct(tag_name) %>% arrange(tag_name) %>% pull(tag_name)
+}
+n_tags <- length(tag_levels)
+
+bt_train <- book_tags_train %>%
+  inner_join(row_map %>% select(book_id, row_ix), by = "book_id") %>%
+  mutate(col_ix = match(tag_name, tag_levels)) %>%
+  filter(!is.na(row_ix), !is.na(col_ix))
+
+M <- Matrix::sparseMatrix(
+  i = bt_train$row_ix,
+  j = bt_train$col_ix,
+  x = 1L,
+  dims = c(n_books, n_tags)
+)
+
+# ------------------------ Compute integer Hamming distances ------------------
+# d_H(i,j) = ones_i + ones_j - 2 * (Y_i · Y_j)
+compute_D <- function(B) {
+  ones <- Matrix::rowSums(B)
+  S    <- B %*% Matrix::t(B)
+  D    <- (matrix(ones, nrow(B), nrow(B)) +
+           matrix(ones, nrow(B), nrow(B), byrow = TRUE)) - 2 * S
+  D <- as.matrix(D)
+  diag(D) <- NA_integer_
+  D
+}
+
+D <- compute_D(Y)
+
+D_p <- NULL
+if (!is.null(Yp) && have_projected_threshold) {
+  D_p <- compute_D(Yp)
+}
+
+# ------------------------ Adjacency (neighbors within best_k / best_k_p) ----
+L_in <- Matrix((D <= best_k) * 1L, sparse = TRUE)
+diag(L_in) <- 0L
+
+L_pr <- NULL
+if (!is.null(D_p) && have_projected_threshold) {
+  L_pr <- Matrix((D_p <= best_k_p) * 1L, sparse = TRUE)
+  diag(L_pr) <- 0L
+}
+
+# ------------------------ Aggregate neighbor tag counts ----------------------
+counts_in <- L_in %*% M
+counts_pr <- if (!is.null(L_pr)) L_pr %*% M else NULL
+
+# Helper serializers
+topN_to_string <- function(x, tag_names, N = 20L) {
+  if (all(x == 0)) return("")
+  ix <- which(x > 0)
+  ord <- ix[order(x[ix], decreasing = TRUE)]
+  ord <- head(ord, N)
+  paste0(tag_names[ord], ":", as.integer(x[ord]), collapse = " | ")
+}
+vec_to_json <- function(x, tag_names, N = 200L) {
+  if (all(x == 0)) return("[]")
+  ix <- which(x > 0)
+  ord <- ix[order(x[ix], decreasing = TRUE)]
+  ord <- head(ord, N)
+  jsonlite::toJSON(tag_names[ord], auto_unbox = TRUE)
+}
+
+# Own tag columns per book (for minus-own)
+own_cols_by_row <- split(bt_train$col_ix, bt_train$row_ix)
+
+make_output <- function(L, counts, label) {
+  if (is.null(L) || is.null(counts)) return(NULL)
+  neigh_ct <- Matrix::rowSums(L)
+
+  # counts minus own tags
+  counts_mo <- counts
+  if (length(own_cols_by_row) > 0) {
+    for (i in seq_len(n_books)) {
+      cols <- own_cols_by_row[[as.character(i)]]
+      if (!is.null(cols) && length(cols)) counts_mo[i, cols] <- 0
+    }
+  }
+
+  tibble(
+    row_ix         = seq_len(n_books),
+    book_id        = row_map$book_id,
+    node_id        = row_map$node_id,
+    neighbor_count = as.integer(neigh_ct),
+    neighbor_tags          = purrr::map_chr(seq_len(n_books), ~ vec_to_json(counts[.x, ],  tag_levels)),
+    neighbor_top20         = purrr::map_chr(seq_len(n_books), ~ topN_to_string(counts[.x, ],  tag_levels, 20L)),
+    neighbor_tags_minus_own= purrr::map_chr(seq_len(n_books), ~ vec_to_json(counts_mo[.x, ], tag_levels)),
+    neighbor_top20_minus_own= purrr::map_chr(seq_len(n_books), ~ topN_to_string(counts_mo[.x, ], tag_levels, 20L)),
+    source = label
+  )
+}
+
+out_in  <- make_output(L_in, counts_in, "in_sample")
+out_pr  <- if (!is.null(counts_pr)) make_output(L_pr, counts_pr, "projected") else NULL
+
+neighbors_tags <- bind_rows(out_in, out_pr)
+
+# Optional: attach titles
+if (exists("catalog_df", inherits = FALSE)) {
+  neighbors_tags <- neighbors_tags %>%
+    left_join(catalog_df %>% select(book_id = id, title), by = "book_id") %>%
+    relocate(title, .after = book_id)
+} else if (exists("titles_all", inherits = FALSE)) {
+  neighbors_tags <- neighbors_tags %>%
+    left_join(titles_all, by = "book_id") %>%
+    relocate(title, .after = book_id)
+}
+
+# ------------------------ Save & self-check ----------------------------------
+write.csv(neighbors_tags %>% arrange(source, desc(neighbor_count)),
+          "calibremd_neighbor_tags_by_book.csv", row.names = FALSE)
+if (!is.null(out_in))  write.csv(out_in, "calibremd_neighbor_tags_in_sample.csv", row.names = FALSE)
+if (!is.null(out_pr))  write.csv(out_pr, "calibremd_neighbor_tags_projected.csv", row.names = FALSE)
+
+cat(sprintf(
+  "Section 8 complete.\nBooks: %d | Tags: %d | best_k: %s%s\nSaved:\n - calibremd_neighbor_tags_by_book.csv%s%s\n",
+  n_books, n_tags, as.character(best_k),
+  if (have_projected_threshold) sprintf(" | best_k_p: %s", as.character(best_k_p)) else "",
+  if (!is.null(out_in))  "\n - calibremd_neighbor_tags_in_sample.csv" else "",
+  if (!is.null(out_pr))  "\n - calibremd_neighbor_tags_projected.csv" else ""
+))
+
+# Lightweight self-checks
+stopifnot(nrow(neighbors_tags) %in% c(n_books, 2L * n_books))
+stopifnot(all(neighbors_tags$neighbor_count >= 0))
 ```
 
 ## 9. for each in-sample book compute Jaccard similarity between the ground truth label set and each of the two sets above (labels from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
+
+```{r}
+
+```
+## 9a. Take any book by id, project the code for the book, compare labels from the projected code with ground truth labels if any exist for that book, and recommend labels that should be either added or removed, ranked by most important to add or delete.
+
+
 ```{r}
 
 ```
