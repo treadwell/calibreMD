@@ -1330,7 +1330,7 @@ unified_meta_train <- build_unified_metadata(eav,
 # Optional: build flat Hamming index for faster queries
 hamming_idx <- build_hamming_index(binary_embedding_train, unified_meta_train)
 recs <- recommend_tags(
-  margin             = 64, #best_k_p,
+  margin             = best_k_p,
   num_neighbors      = 25,
   type               = "tag",        # or NULL
   unified_meta       = unified_meta_train,
@@ -1341,8 +1341,35 @@ recs <- recommend_tags(
   index              = hamming_idx
 )
 
+if (!exists("original_tag_values", inherits = FALSE)) {
+  original_tag_values <- md_db %>%
+    load_eav() %>%
+    dplyr::filter(feature == "tag") %>%
+    dplyr::distinct(value) %>%
+    dplyr::pull(value) %>%
+    as.character()
+}
+
+existing_tags_for_union <- existing_tags_df %>%
+  dplyr::filter(tag_name %in% original_tag_values) %>%
+  dplyr::mutate(
+    book_id = as.character(book_id),
+    tag_name = as.character(tag_name),
+    distance = NA_real_
+  )
+
+recs_with_existing <- dplyr::bind_rows(
+  recs %>%
+    dplyr::mutate(
+      book_id = as.character(book_id),
+      tag_name = as.character(tag_name)
+    ),
+  existing_tags_for_union
+) %>%
+  dplyr::distinct(book_id, tag_name, .keep_all = TRUE)
+
 actions_df <- summarize_tag_actions(
-  recs = recs,
+  recs = recs_with_existing,
   existing_tags = existing_tags_df,                # all books considered untagged
   unified_meta = unified_meta_train    # has book_id + book_title
 )
@@ -1633,7 +1660,5 @@ stopifnot(all(neighbors_tags$neighbor_count >= 0))
   * anchor graph hashing
   * self taught hashing with clever feature engineering (landmark-augmented self-taught hashing)
 * find nearest tag using the same old approach above
-
-
 
 
