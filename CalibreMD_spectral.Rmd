@@ -1347,6 +1347,7 @@ actions_df <- summarize_tag_actions(
   unified_meta = unified_meta_train    # has book_id + book_title
 )
 ```
+TODO:  check on filtering by exploded tags.  eg. magic and magic.card and maybe 
 
 ## 8. for each in-sample book, considering the known labels as the first list, create a 2nd and 3rd labels list using the in-sample codes plus margin and projected codes plus margin
 ```{r}
