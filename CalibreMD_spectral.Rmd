@@ -234,15 +234,15 @@ abline(v = which.max(diff(eigvals) > 0.05), col = "red", lty = 2) # optional heu
 ## Visualize graph
 
 ```{r}
-library(igraph)
-
-# Simplify graph for visualization (remove loops and multiple edges)
-g_viz <- simplify(g, remove.multiple = TRUE, remove.loops = TRUE, edge.attr.comb = "sum")
-
-plot(g_viz, layout = as.matrix(eigvecs[, 1:2, drop = FALSE]),
-     vertex.size = 4, vertex.label = NA,
-     edge.color = ifelse(E(g_viz)$weight > 0, "steelblue", "firebrick"),
-     edge.width = abs(E(g_viz)$weight) + .2)
+# library(igraph)
+# 
+# # Simplify graph for visualization (remove loops and multiple edges)
+# g_viz <- simplify(g, remove.multiple = TRUE, remove.loops = TRUE, edge.attr.comb = "sum")
+# 
+# plot(g_viz, layout = as.matrix(eigvecs[, 1:2, drop = FALSE]),
+#      vertex.size = 4, vertex.label = NA,
+#      edge.color = ifelse(E(g_viz)$weight > 0, "steelblue", "firebrick"),
+#      edge.width = abs(E(g_viz)$weight) + .2)
 ```
 
 ## Fn: Iterative quantization
@@ -482,9 +482,7 @@ unified_meta_test <- build_unified_metadata(eav, book_ids_test)
 get_existing_tags <- function(eav) {
   eav %>% 
     filter(feature == "tag") %>% 
-    select(id, tag = value) %>% 
-    group_by(id) %>% 
-    summarize(existing_tags = list(tag), .groups = "drop")
+    select(book_id = id, tag_name = value)
 }
 ```
 
@@ -746,27 +744,49 @@ recommend_tags <- function(margin,
     row_idx <- book_row_ids[i]
     if (is.na(row_idx) || row_idx <= 0L) next
     this_book_id <- book_ids$book_id[i]
-
-    nbr_ids <- all_nbrs$node_ids[[row_idx]]
+  
+    nbr_ids   <- all_nbrs$node_ids[[row_idx]]
+    nbr_dists <- all_nbrs$distances[[row_idx]]
     if (length(nbr_ids) == 0) next
-
-    tag_lookup <- unified_meta$tag_name[match(nbr_ids, unified_meta$node_id)]
-    rec_tags <- unique(stats::na.omit(tag_lookup))
-
-    if (length(rec_tags) > 0) {
-      rec_tags <- prune_to_leaf(to_full_path(rec_tags))
-      # Remove tags already on this book
-      idx_match <- which(existing_tags_df$id == this_book_id)
-      this_existing <- if (length(idx_match) > 0) existing_tags_df$existing_tags[idx_match][[1]] else NULL
-      existing_vec <- if (!is.null(this_existing)) unlist(this_existing, use.names = FALSE) else character(0)
-      new_tags <- setdiff(rec_tags, existing_vec)
-
-      if (length(new_tags) > 0) {
-        results_rows[[length(results_rows) + 1L]] <- tibble::tibble(
-          book_id = as.character(this_book_id),
-          tag_name = as.character(new_tags)
-        )
-      }
+  
+    # Map neighbors to tags and carry distances
+    df <- tibble::tibble(
+      nbr_id   = nbr_ids,
+      distance = nbr_dists
+    )
+  
+    df$tag_raw <- unified_meta$tag_name[match(df$nbr_id, unified_meta$node_id)]
+    df <- df[!is.na(df$tag_raw) & nzchar(df$tag_raw), , drop = FALSE]
+    if (nrow(df) == 0) next
+  
+    # To full paths, prune to leaves
+    df$tag_full <- to_full_path(df$tag_raw)
+    pruned_set  <- prune_to_leaf(df$tag_full)
+    df <- df[df$tag_full %in% pruned_set, , drop = FALSE]
+    if (nrow(df) == 0) next
+  
+    # If multiple neighbors map to same tag, keep the closest (min distance)
+    df_tags <- df |>
+      dplyr::group_by(tag_name = .data$tag_full) |>
+      dplyr::summarise(distance = min(.data$distance), .groups = "drop")
+  
+    # Remove tags already on this book
+    idx_match    <- which(existing_tags_df$id == this_book_id)
+    this_existing <- if (length(idx_match) > 0) existing_tags_df$existing_tags[idx_match][[1]] else NULL
+    existing_vec  <- if (!is.null(this_existing)) unlist(this_existing, use.names = FALSE) else character(0)
+  
+    df_new <- dplyr::anti_join(
+      df_tags,
+      tibble::tibble(tag_name = existing_vec),
+      by = "tag_name"
+    )
+  
+    if (nrow(df_new) > 0) {
+      results_rows[[length(results_rows) + 1L]] <- tibble::tibble(
+        book_id  = as.character(this_book_id),
+        tag_name = as.character(df_new$tag_name),
+        distance = as.numeric(df_new$distance)
+      )
     }
   }
 
@@ -777,76 +797,91 @@ recommend_tags <- function(margin,
   dplyr::bind_rows(results_rows)
 }
 ```
-## Get recommendations
+## FN: Summarize recommendations
 ```{r}
-existing_tags_df <- get_existing_tags(eav)
-unified_meta_train <- build_unified_metadata(eav, 
-                                             book_ids_train, 
-                                             tag_names_train, 
-                                             node_types_train, 
-                                             binary_embedding_train, md_db)
-# Optional: build flat Hamming index for faster queries
-hamming_idx <- build_hamming_index(binary_embedding_train, unified_meta_train)
-recs <- recommend_tags(
-  margin             = 0,
-  num_neighbors      = 25,
-  type               = "tag",        # or NULL
-  unified_meta       = unified_meta_train,
-  book_ids           = book_ids_train,
-  tag_names          = tag_names_train,
-  existing_tags_df   = existing_tags_df,
-  binary_embedding   = binary_embedding_train,
-  index              = hamming_idx
-)
-```
-
-### sanity checks
-```{r}
-cat("\n=== Recommendation sanity checks ===\n")
-cat("Total recommendations:", nrow(recs), "\n")
-
-books_with_recs <- if (nrow(recs) > 0) dplyr::n_distinct(recs$book_id) else 0L
-cat(
-  "Books with at least one rec:", books_with_recs,
-  "of", nrow(book_ids_train),
-  sprintf("(%.1f%%)", if (nrow(book_ids_train) > 0) 100 * books_with_recs / nrow(book_ids_train) else 0),
-  "\n"
-)
-
-if (nrow(recs) > 0) {
-  recs_per_book <- recs %>% dplyr::count(book_id, name = "n")
-  cat("\nRecs per book summary:\n")
-  print(summary(recs_per_book$n))
-
-  cat("\nTop 5 books by rec count:\n")
-  print(
-    recs_per_book %>%
-      dplyr::arrange(dplyr::desc(n)) %>%
-      dplyr::slice_head(n = 5)
-  )
-
-  cat("\nTop 10 recommended tags:\n")
-  print(
-    recs %>%
-      dplyr::count(tag_name, sort = TRUE, name = "n") %>%
-      dplyr::slice_head(n = 10)
-  )
-
-  # Sample with titles if available
-  sample_rows <- recs %>%
-    dplyr::left_join(
-      unified_meta_train %>% 
-        dplyr::select(book_id, book_title) %>% 
-        dplyr::distinct() %>% 
-        dplyr::mutate(book_id = as.character(book_id)),
-      by = "book_id"
-    ) %>%
-    dplyr::arrange(book_id, dplyr::desc(tag_name)) %>%
-    dplyr::slice_head(n = 10)
-  cat("\nSample recommendations (up to 10):\n")
-  print(sample_rows)
+#' Summarize tag actions (add / remove / keep) per book
+#'
+#' @param recs           data.frame with at least: book_id, tag_name
+#' @param existing_tags  data.frame with at least: book_id, tag_name (optional; may be NULL)
+#'                       If NULL, assumes no existing tags for any books.
+#' @param unified_meta   data.frame with at least: book_id, book_title
+#'
+#' @return data.frame with columns: book_id, book_title, tag_name, action
+#'         where action ∈ { "add", "remove", "keep" }
+#'
+#' @examples
+#' actions_df <- summarize_tag_actions(recs, existing_tags, unified_meta)
+summarize_tag_actions <- function(recs, existing_tags = NULL, unified_meta) {
+  stopifnot(is.data.frame(recs), is.data.frame(unified_meta))
+  
+  # --- Validate columns ---
+  if (!all(c("book_id", "tag_name") %in% names(recs))) {
+    stop("`recs` must contain columns: book_id, tag_name")
+  }
+  if (!all(c("book_id", "book_title") %in% names(unified_meta))) {
+    stop("`unified_meta` must contain columns: book_id, book_title")
+  }
+  
+  # --- Normalize ---
+  recs_norm <- recs |>
+    dplyr::transmute(
+      book_id  = as.character(.data$book_id),
+      tag_name = as.character(.data$tag_name)
+    ) |>
+    dplyr::distinct()
+  
+  if (is.null(existing_tags)) {
+    # If no tags exist, all recommendations are "add"
+    existing_norm <- dplyr::tibble(book_id = character(), tag_name = character())
+  } else {
+    if (!all(c("book_id", "tag_name") %in% names(existing_tags))) {
+      stop("`existing_tags` must contain columns: book_id, tag_name")
+    }
+    existing_norm <- existing_tags |>
+      dplyr::transmute(
+        book_id  = as.character(.data$book_id),
+        tag_name = as.character(.data$tag_name)
+      ) |>
+      dplyr::distinct()
+  }
+  
+  # --- Compute sets ---
+  keep_df <- dplyr::inner_join(existing_norm, recs_norm,
+                               by = c("book_id", "tag_name")) |>
+    dplyr::mutate(action = "keep")
+  
+  add_df <- dplyr::anti_join(recs_norm, existing_norm,
+                             by = c("book_id", "tag_name")) |>
+    dplyr::mutate(action = "add")
+  
+  remove_df <- dplyr::anti_join(existing_norm, recs_norm,
+                                by = c("book_id", "tag_name")) |>
+    dplyr::mutate(action = "remove")
+  
+  out <- dplyr::bind_rows(keep_df, add_df, remove_df)
+  
+  # --- Attach titles ---
+  titles_norm <- unified_meta |>
+    dplyr::transmute(
+      book_id    = as.character(.data$book_id),
+      book_title = as.character(.data$book_title)
+    ) |>
+    dplyr::distinct()
+  
+  out <- out |>
+    dplyr::left_join(titles_norm, by = "book_id") |>
+    dplyr::relocate(.data$book_title, .after = .data$book_id)
+  
+  # --- Order by book / action / tag ---
+  action_order <- c(keep = 1L, add = 2L, remove = 3L)
+  
+  out |>
+    dplyr::mutate(.action_rank = action_order[.data$action]) |>
+    dplyr::arrange(.data$book_id, .data$.action_rank, .data$tag_name) |>
+    dplyr::select(.data$book_id, .data$book_title, .data$tag_name, .data$action)
 }
 ```
+
 # Inference
 
 ## FN: Train encoder
@@ -1284,6 +1319,35 @@ legend("bottomright",
        col    = c("firebrick", "steelblue", "darkgreen", "gray40"),
        lty    = c(1,1,1,2), lwd = c(2,2,2,1), bty = "n")
 ```
+## Get recommendations
+```{r}
+existing_tags_df <- get_existing_tags(eav)
+unified_meta_train <- build_unified_metadata(eav, 
+                                             book_ids_train, 
+                                             tag_names_train, 
+                                             node_types_train, 
+                                             binary_embedding_train, md_db)
+# Optional: build flat Hamming index for faster queries
+hamming_idx <- build_hamming_index(binary_embedding_train, unified_meta_train)
+recs <- recommend_tags(
+  margin             = 64, #best_k_p,
+  num_neighbors      = 25,
+  type               = "tag",        # or NULL
+  unified_meta       = unified_meta_train,
+  book_ids           = book_ids_train,
+  tag_names          = tag_names_train,
+  existing_tags_df   = existing_tags_df,
+  binary_embedding   = binary_embedding_train,
+  index              = hamming_idx
+)
+
+actions_df <- summarize_tag_actions(
+  recs = recs,
+  existing_tags = existing_tags_df,                # all books considered untagged
+  unified_meta = unified_meta_train    # has book_id + book_title
+)
+```
+
 ## 8. for each in-sample book, considering the known labels as the first list, create a 2nd and 3rd labels list using the in-sample codes plus margin and projected codes plus margin
 ```{r}
 ## 8. Neighbor tag lists by book (integer Hamming; robust + self-check)
