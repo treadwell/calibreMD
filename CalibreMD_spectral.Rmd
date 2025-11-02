@@ -681,6 +681,7 @@ all_neighborhoods <- function(index,
 
 recommend_tags <- function(margin,
                            num_neighbors = NULL,
+                           distance_cap = NULL,
                            type = NULL,
                            unified_meta,
                            book_ids,
@@ -779,7 +780,12 @@ recommend_tags <- function(margin,
     df_tags <- df |>
       dplyr::group_by(tag_name = .data$tag_full) |>
       dplyr::summarise(distance = min(.data$distance), .groups = "drop")
-  
+    if (!is.null(distance_cap)) {
+      df_tags <- df_tags |>
+        dplyr::filter(.data$distance <= distance_cap)
+      if (nrow(df_tags) == 0) next
+    }
+
     # Remove tags already on this book
     this_existing <- existing_lookup$existing_tags[existing_lookup$book_id == this_book_id]
     existing_vec  <- if (length(this_existing) > 0) unlist(this_existing[[1]], use.names = FALSE) else character(0)
@@ -1460,9 +1466,13 @@ book_ids_all_rows <- book_meta_all %>%
 hamming_idx_train <- build_hamming_index(binary_embedding_train, unified_meta_train)
 hamming_idx_all   <- build_hamming_index(codes_all, unified_meta_all)
 
+top_k_tags <- 3
+distance_cap <- 5
+
 recs_train <- recommend_tags(
   margin             = best_k,
-  num_neighbors      = 25,
+  num_neighbors      = top_k_tags,
+  distance_cap       = distance_cap,
   type               = "tag",
   unified_meta       = unified_meta_train,
   book_ids           = book_ids_train_rows,
@@ -1474,7 +1484,8 @@ recs_train <- recommend_tags(
 
 recs_all <- recommend_tags(
   margin             = best_k_p_precision_capped,
-  num_neighbors      = 25,
+  num_neighbors      = top_k_tags,
+  distance_cap       = distance_cap,
   type               = "tag",
   unified_meta       = unified_meta_all,
   book_ids           = book_ids_all_rows,
@@ -1529,6 +1540,28 @@ prepare_actions <- function(recs_tbl, unified_meta_tbl) {
 
 actions_df_train <- prepare_actions(recs_train, unified_meta_train)
 actions_df_all   <- prepare_actions(recs_all, unified_meta_all)
+
+existing_tag_lookup <- existing_tags_original %>%
+  dplyr::mutate(book_id = as.character(book_id),
+                tag_name = as.character(tag_name),
+                tag_exists = TRUE)
+
+reclassify_keep <- function(actions_df) {
+  actions_df %>%
+    dplyr::left_join(existing_tag_lookup,
+                     by = c("book_id", "tag_name")) %>%
+    dplyr::mutate(
+      action = dplyr::case_when(
+        action == "keep" & is.na(tag_exists) ~ "add",
+        TRUE ~ action
+      )
+    ) %>%
+    dplyr::select(-tag_exists)
+}
+
+actions_df_train <- reclassify_keep(actions_df_train)
+actions_df_all   <- reclassify_keep(actions_df_all)
+
 actions_df <- actions_df_train
 actions_df_full <- actions_df_all
 ```
