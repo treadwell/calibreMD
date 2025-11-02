@@ -1390,7 +1390,7 @@ best_k_p   <- k_vals_p[best_i_p]           # ≤ best_k_p differing bits
 best_f1_p  <- f1_p[best_i_p]
 
 # Precision-constrained threshold (prefer high precision to limit false positives)
-target_precision <- 0.8
+target_precision <- 0.9
 eligible_idx <- which(!is.na(prec_p) & prec_p >= target_precision)
 if (length(eligible_idx) > 0) {
   best_i_p_precision <- eligible_idx[which.max(f1_p[eligible_idx])]
@@ -1413,10 +1413,15 @@ acc_best_p  <- mean(pred_best_p == truth_vec)
 best_margin_p <- 1 - (best_k_p / kbits_p)
 best_margin_p_precision <- 1 - (best_k_p_precision / kbits_p)
 
+best_k_p_precision_capped <- min(best_k_p_precision, 10L)
+best_margin_p_precision_capped <- 1 - (best_k_p_precision_capped / kbits_p)
+
 cat(sprintf("Projected codes — best integer Hamming threshold: ≤ %d of %d bits differ | F1 = %.3f | Accuracy = %.3f\n",
             best_k_p, kbits_p, best_f1_p, acc_best_p))
 cat(sprintf("Projected codes — precision-constrained threshold: ≤ %d bits differ | precision = %.3f | recall = %.3f\n",
             best_k_p_precision, precision_at_best, recall_at_best))
+cat(sprintf("Projected codes — capped precision threshold: ≤ %d bits differ (precision target %.2f with cap)\n",
+            best_k_p_precision_capped, target_precision))
 
 # ---- Single chart: Precision / Recall / F1 vs Hamming distance (colored) ----
 plot(k_vals_p, f1_p, type = "l", lwd = 2, col = "firebrick",
@@ -1431,9 +1436,10 @@ abline(v = best_k_p_precision, lty = 3, col = "steelblue")
 legend("bottomright",
        legend = c("F1", "Precision", "Recall",
                   sprintf("Best F1 ≤ %d bits", best_k_p),
-                  sprintf("Precision ≥ %.2f ≤ %d bits", target_precision, best_k_p_precision)),
-       col    = c("firebrick", "steelblue", "darkgreen", "gray40", "steelblue"),
-       lty    = c(1,1,1,2,3), lwd = c(2,2,2,1,1), bty = "n")
+                  sprintf("Precision ≥ %.2f ≤ %d bits", target_precision, best_k_p_precision),
+                  sprintf("Precision cap ≤ %d bits", best_k_p_precision_capped)),
+       col    = c("firebrick", "steelblue", "darkgreen", "gray40", "steelblue", "steelblue"),
+       lty    = c(1,1,1,2,3,3), lwd = c(2,2,2,1,1,1), bty = "n")
 ```
 ## 8. Get tag recommendations for in-sample books using in-sample codes
 ```{r}
@@ -1467,7 +1473,7 @@ recs_train <- recommend_tags(
 )
 
 recs_all <- recommend_tags(
-  margin             = best_k_p_precision,
+  margin             = best_k_p_precision_capped,
   num_neighbors      = 25,
   type               = "tag",
   unified_meta       = unified_meta_all,
@@ -1487,8 +1493,10 @@ if (!exists("original_tag_values", inherits = FALSE)) {
     as.character()
 }
 
-existing_tags_for_union <- existing_tags_df %>%
-  dplyr::filter(tag_name %in% original_tag_values) %>%
+existing_tags_original <- existing_tags_df %>%
+  dplyr::filter(tag_name %in% original_tag_values)
+
+existing_tags_for_union <- existing_tags_original %>%
   dplyr::mutate(
     book_id = as.character(book_id),
     tag_name = as.character(tag_name),
@@ -1511,7 +1519,7 @@ prepare_actions <- function(recs_tbl, unified_meta_tbl) {
 
   summarize_tag_actions(
     recs = recs_with_existing,
-    existing_tags = existing_tags_df,
+    existing_tags = existing_tags_original,
     unified_meta = unified_meta_tbl %>%
       dplyr::filter(!is.na(book_id)) %>%
       dplyr::select(book_id, book_title) %>%
