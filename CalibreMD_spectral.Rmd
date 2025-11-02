@@ -40,9 +40,9 @@ setup_packages()
 # Load data from SQLite to EAV table
 
 ```{r}
-dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
 #dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
-#dataDir <- '/Users/kbrooks/Dropbox/Books/calbreGPT'
+dataDir <- '/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg'
 
 md_db <- find_md_db(dataDir)
 
@@ -245,7 +245,7 @@ abline(v = which.max(diff(eigvals) > 0.05), col = "red", lty = 2) # optional heu
 #      edge.width = abs(E(g_viz)$weight) + .2)
 ```
 
-## Fn: Iterative quantization
+## Fn: Binarize
 
 * Rotate the embeddings to minimize quantization error (like PCA?)
 * In PCA rotate feature space to explain the most variance
@@ -258,39 +258,43 @@ abline(v = which.max(diff(eigvals) > 0.05), col = "red", lty = 2) # optional heu
 * This can be used to find similar books per the underlying graph
 
 ```{r}
-iterative_quantization <- function(X, n_iter = 25) {
-  # Step 1: Zero-center
-  X_centered <- scale(X, center = TRUE, scale = FALSE)
-
-  # Step 2: PCA via SVD of centered matrix
-  svd_X <- svd(X_centered)
-  V <- svd_X$v  # principal directions
-
-  # Step 3: Project X to PCA space
-  X_pca <- X_centered %*% V
-
-  # Step 4: Initialize rotation matrix R as identity
-  R <- diag(ncol(X))
-
-  for (i in 1:n_iter) {
-    # Step 5: Compute binary code in {-1, +1}
-    B <- sign(X_pca %*% R)
-
-    # Step 6: Solve for optimal R using SVD
-    C <- t(B) %*% X_pca
-    svd_C <- svd(C)
-    R <- svd_C$u %*% t(svd_C$v)
+binarize <- function(X, n_iter = 25, mode = NULL) {
+  if (is.null(mode) || mode == "itq") {
+    # Step 1: Zero-center
+    X_centered <- scale(X, center = TRUE, scale = FALSE)
+  
+    # Step 2: PCA via SVD of centered matrix
+    svd_X <- svd(X_centered)
+    V <- svd_X$v  # principal directions
+  
+    # Step 3: Project X to PCA space
+    X_pca <- X_centered %*% V
+  
+    # Step 4: Initialize rotation matrix R as identity
+    R <- diag(ncol(X))
+  
+    for (i in 1:n_iter) {
+      # Step 5: Compute binary code in {-1, +1}
+      B <- sign(X_pca %*% R)
+  
+      # Step 6: Solve for optimal R using SVD
+      C <- t(B) %*% X_pca
+      svd_C <- svd(C)
+      R <- svd_C$u %*% t(svd_C$v)
+    }
+  
+    # Final binary codes in {0,1} as integer matrix (uint8-like)
+    B_final <- sign(X_pca %*% R)
+    storage.mode(B_final) <- "integer"
+    B01 <- ifelse(B_final > 0L, 1L, 0L)
+    mode(B01) <- "integer"
+    B01
+  } else {
+    sign(X)
   }
-
-  # Final binary codes in {0,1} as integer matrix (uint8-like)
-  B_final <- sign(X_pca %*% R)
-  storage.mode(B_final) <- "integer"
-  B01 <- ifelse(B_final > 0L, 1L, 0L)
-  mode(B01) <- "integer"
-  B01
 }
 
-binary_embedding_train <- iterative_quantization(eigvecs)  # uint8-like 0/1 integer matrix
+binary_embedding_train <- binarize(eigvecs)  # uint8-like 0/1 integer matrix
 ```
 
 ### Check binary embeddings
@@ -483,70 +487,6 @@ get_existing_tags <- function(eav) {
   eav %>% 
     filter(feature == "tag") %>% 
     select(book_id = id, tag_name = value)
-}
-```
-
-## Fn: Get nearest neighbors
-
-```{r}
-# Simple Hamming-based nearest neighbors (pure R, no Python interop)
-get_nearest_neighbors <- function(code_vector,
-                                  index = NULL,
-                                  binary_embedding = NULL,
-                                  unified_meta,
-                                  num_neighbors = NULL,
-                                  margin = NULL,
-                                  type = NULL) {
-  stopifnot(is.numeric(code_vector))
-  if (is.null(index)) stopifnot(is.matrix(binary_embedding))
-
-  # If a prebuilt Hamming index is provided, use it
-  if (!is.null(index)) {
-    res <- hamming_search(
-      index        = index,
-      code_vector  = code_vector,
-      k            = num_neighbors,
-      margin       = margin,
-      type         = type,
-      unified_meta = unified_meta
-    )
-    return(res)
-  }
-
-  # Efficient Hamming distance for 0/1 data without large temporaries
-  sx <- rowSums(binary_embedding)
-  sy <- sum(code_vector)
-  dot <- as.numeric(binary_embedding %*% code_vector)
-  distances <- sx + sy - 2 * dot
-
-  # Candidate set
-  candidates <- seq_len(nrow(binary_embedding))
-
-  # Type filter: row index equals node_id by construction
-  if (!is.null(type)) {
-    stopifnot(all(c("row_id", "node_type") %in% names(unified_meta)))
-    row_types <- unified_meta$node_type[match(seq_len(nrow(binary_embedding)), unified_meta$row_id)]
-    candidates <- candidates[!is.na(row_types) & row_types == type]
-  }
-
-  # Margin filter
-  if (!is.null(margin)) {
-    stopifnot(is.numeric(margin), margin >= 0)
-    candidates <- candidates[distances[candidates] <= margin]
-  }
-
-  if (length(candidates) == 0) return(list(row_ids = integer(0), distances = numeric(0)))
-
-  # Order by distance then index
-  ord <- order(distances[candidates], candidates)
-  candidates <- candidates[ord]
-
-  # Top-k
-  if (!is.null(num_neighbors) && length(candidates) > num_neighbors) {
-    candidates <- candidates[seq_len(as.integer(num_neighbors))]
-  }
-
-  list(row_ids = candidates, distances = distances[candidates])
 }
 ```
 
@@ -779,30 +719,23 @@ recommend_tags <- function(margin,
     # If multiple neighbors map to same tag, keep the closest (min distance)
     df_tags <- df |>
       dplyr::group_by(tag_name = .data$tag_full) |>
-      dplyr::summarise(distance = min(.data$distance), .groups = "drop")
+      dplyr::summarise(distance = min(.data$distance), .groups = "drop") |>
+      dplyr::arrange(.data$distance)
     if (!is.null(distance_cap)) {
-      df_tags <- df_tags |>
+      df_tags_filtered <- df_tags |>
         dplyr::filter(.data$distance <= distance_cap)
-      if (nrow(df_tags) == 0) next
+      if (nrow(df_tags_filtered) == 0) {
+        df_tags_filtered <- df_tags %>% dplyr::slice_head(n = 1)
+      }
+      df_tags <- df_tags_filtered
     }
-
-    # Remove tags already on this book
-    this_existing <- existing_lookup$existing_tags[existing_lookup$book_id == this_book_id]
-    existing_vec  <- if (length(this_existing) > 0) unlist(this_existing[[1]], use.names = FALSE) else character(0)
   
-    df_new <- dplyr::anti_join(
-      df_tags,
-      tibble::tibble(tag_name = existing_vec),
-      by = "tag_name"
+    results_rows[[length(results_rows) + 1L]] <- tibble::tibble(
+      book_id  = as.character(this_book_id),
+      tag_name = as.character(df_tags$tag_name),
+      distance = as.numeric(df_tags$distance)
     )
-  
-    if (nrow(df_new) > 0) {
-      results_rows[[length(results_rows) + 1L]] <- tibble::tibble(
-        book_id  = as.character(this_book_id),
-        tag_name = as.character(df_new$tag_name),
-        distance = as.numeric(df_new$distance)
-      )
-    }
+
   }
 
   if (length(results_rows) == 0) {
@@ -1466,8 +1399,8 @@ book_ids_all_rows <- book_meta_all %>%
 hamming_idx_train <- build_hamming_index(binary_embedding_train, unified_meta_train)
 hamming_idx_all   <- build_hamming_index(codes_all, unified_meta_all)
 
-top_k_tags <- 3
-distance_cap <- 5
+top_k_tags <- 10
+distance_cap <- NULL
 
 recs_train <- recommend_tags(
   margin             = best_k,
