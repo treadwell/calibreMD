@@ -535,7 +535,7 @@ get_nearest_neighbors <- function(code_vector,
     candidates <- candidates[distances[candidates] <= margin]
   }
 
-  if (length(candidates) == 0) return(list(node_ids = integer(0), distances = numeric(0)))
+  if (length(candidates) == 0) return(list(row_ids = integer(0), distances = numeric(0)))
 
   # Order by distance then index
   ord <- order(distances[candidates], candidates)
@@ -546,7 +546,7 @@ get_nearest_neighbors <- function(code_vector,
     candidates <- candidates[seq_len(as.integer(num_neighbors))]
   }
 
-  list(node_ids = candidates, distances = distances[candidates])
+  list(row_ids = candidates, distances = distances[candidates])
 }
 ```
 
@@ -557,14 +557,12 @@ get_nearest_neighbors <- function(code_vector,
 # Returns a lightweight list with matrix and node_id mapping
 build_hamming_index <- function(binary_embedding, unified_meta = NULL) {
   stopifnot(is.matrix(binary_embedding))
-  node_ids <- if (!is.null(unified_meta) && all(c("node_id", "row_id") %in% names(unified_meta))) {
-    unified_meta$node_id[match(seq_len(nrow(binary_embedding)), unified_meta$row_id)]
-  } else {
-    seq_len(nrow(binary_embedding))
+  if (!is.null(unified_meta)) {
+    stopifnot("row_id" %in% names(unified_meta))
   }
   list(
     data = binary_embedding,
-    node_ids = as.integer(node_ids)
+    metadata = unified_meta
   )
 }
 
@@ -577,6 +575,7 @@ hamming_search <- function(index,
                            unified_meta = NULL) {
   stopifnot(is.list(index), is.matrix(index$data), is.numeric(code_vector))
   X <- index$data
+  metadata <- if (!is.null(unified_meta)) unified_meta else index$metadata
   # Efficient Hamming distances for 0/1 data:
   # d(x,y) = sum(x) + sum(y) - 2 * x·y
   sx <- rowSums(X)
@@ -588,9 +587,8 @@ hamming_search <- function(index,
 
   # Optional type filter using unified metadata mapping
   if (!is.null(type)) {
-    stopifnot(!is.null(unified_meta), all(c("node_id", "node_type") %in% names(unified_meta)))
-    cand_node_ids <- index$node_ids[candidates]
-    cand_types <- unified_meta$node_type[match(cand_node_ids, unified_meta$node_id)]
+    stopifnot(!is.null(metadata), all(c("row_id", "node_type") %in% names(metadata)))
+    cand_types <- metadata$node_type[match(candidates, metadata$row_id)]
     keep <- !is.na(cand_types) & cand_types == type
     candidates <- candidates[keep]
   }
@@ -601,7 +599,7 @@ hamming_search <- function(index,
     candidates <- candidates[distances[candidates] <= margin]
   }
 
-  if (length(candidates) == 0) return(list(node_ids = integer(0), distances = numeric(0)))
+  if (length(candidates) == 0) return(list(row_ids = integer(0), distances = numeric(0)))
 
   ord <- order(distances[candidates], candidates)
   candidates <- candidates[ord]
@@ -610,7 +608,7 @@ hamming_search <- function(index,
     candidates <- candidates[seq_len(as.integer(k))]
   }
 
-  list(node_ids = index$node_ids[candidates], distances = distances[candidates])
+  list(row_ids = candidates, distances = distances[candidates])
 }
 
 # Compute neighborhoods for all rows using the index (vectorized by blocks)
@@ -623,6 +621,7 @@ all_neighborhoods <- function(index,
   stopifnot(is.list(index), is.matrix(index$data))
   X <- index$data
   n <- nrow(X)
+  metadata <- if (!is.null(unified_meta)) unified_meta else index$metadata
 
   # Precompute sums for fast Hamming
   sx <- rowSums(X)
@@ -630,8 +629,8 @@ all_neighborhoods <- function(index,
   # Optional type mask
   type_mask <- rep(TRUE, n)
   if (!is.null(type)) {
-    stopifnot(!is.null(unified_meta), all(c("node_id", "node_type") %in% names(unified_meta)))
-    types <- unified_meta$node_type[match(index$node_ids, unified_meta$node_id)]
+    stopifnot(!is.null(metadata), all(c("row_id", "node_type") %in% names(metadata)))
+    types <- metadata$node_type[match(seq_len(n), metadata$row_id)]
     type_mask <- !is.na(types) & types == type
   }
 
@@ -660,14 +659,14 @@ all_neighborhoods <- function(index,
       dcol <- D[, j]
       ord <- order(dcol, seq_len(n), na.last = NA)
       if (is.finite(k)) {
-        ord <- ord[seq_len(min(k, length(ord)))]
+      ord <- ord[seq_len(min(k, length(ord)))]
       }
-      results_ids[[start + j - 1L]] <- index$node_ids[ord]
+      results_ids[[start + j - 1L]] <- ord
       results_dist[[start + j - 1L]] <- dcol[ord]
     }
   }
 
-  list(node_ids = results_ids, distances = results_dist)
+  list(row_ids = results_ids, distances = results_dist)
 }
 ```
 
@@ -689,7 +688,8 @@ recommend_tags <- function(margin,
                            existing_tags_df,
                            binary_embedding,
                            index = NULL) {
-  stopifnot(all(c("node_id", "book_id") %in% names(book_ids)))
+  stopifnot("book_id" %in% names(book_ids))
+  stopifnot(all(c("node_id", "tag_name") %in% names(tag_names)))
   stopifnot(all(c("node_id", "tag_name") %in% names(tag_names)))
   stopifnot(!is.null(index))
 
@@ -738,24 +738,34 @@ recommend_tags <- function(margin,
   )
 
   # Map each book to its row_id (which aligns with index rows)
-  book_row_ids <- unified_meta$row_id[match(book_ids$node_id, unified_meta$node_id)]
+  if ("row_id" %in% names(book_ids)) {
+    book_row_ids <- book_ids$row_id
+  } else if ("node_id" %in% names(book_ids)) {
+    book_row_ids <- unified_meta$row_id[match(book_ids$node_id, unified_meta$node_id)]
+  } else {
+    stop("`book_ids` must contain either `row_id` or `node_id`.")
+  }
+
+  existing_lookup <- existing_tags_df %>%
+    dplyr::group_by(book_id) %>%
+    dplyr::summarise(existing_tags = list(tag_name), .groups = "drop")
 
   for (i in seq_along(book_row_ids)) {
     row_idx <- book_row_ids[i]
     if (is.na(row_idx) || row_idx <= 0L) next
     this_book_id <- book_ids$book_id[i]
   
-    nbr_ids   <- all_nbrs$node_ids[[row_idx]]
+    nbr_rows   <- all_nbrs$row_ids[[row_idx]]
     nbr_dists <- all_nbrs$distances[[row_idx]]
-    if (length(nbr_ids) == 0) next
+    if (length(nbr_rows) == 0) next
   
     # Map neighbors to tags and carry distances
     df <- tibble::tibble(
-      nbr_id   = nbr_ids,
+      row_id   = nbr_rows,
       distance = nbr_dists
     )
   
-    df$tag_raw <- unified_meta$tag_name[match(df$nbr_id, unified_meta$node_id)]
+    df$tag_raw <- unified_meta$tag_name[match(df$row_id, unified_meta$row_id)]
     df <- df[!is.na(df$tag_raw) & nzchar(df$tag_raw), , drop = FALSE]
     if (nrow(df) == 0) next
   
@@ -771,9 +781,8 @@ recommend_tags <- function(margin,
       dplyr::summarise(distance = min(.data$distance), .groups = "drop")
   
     # Remove tags already on this book
-    idx_match    <- which(existing_tags_df$id == this_book_id)
-    this_existing <- if (length(idx_match) > 0) existing_tags_df$existing_tags[idx_match][[1]] else NULL
-    existing_vec  <- if (!is.null(this_existing)) unlist(this_existing, use.names = FALSE) else character(0)
+    this_existing <- existing_lookup$existing_tags[existing_lookup$book_id == this_book_id]
+    existing_vec  <- if (length(this_existing) > 0) unlist(this_existing[[1]], use.names = FALSE) else character(0)
   
     df_new <- dplyr::anti_join(
       df_tags,
@@ -977,20 +986,27 @@ evaluate_projection <- function(Y0, Y1, prefix = 0){
 ## FN: Prep data set
 ```{r}
 prep_encoder_data <- function(eav, unified_meta, binary_embedding = NULL, indexed_features = NULL) {
+  stopifnot("book_id" %in% names(unified_meta))
+  
   if(is.null(binary_embedding)){
-    book_features <- eav %>%
+    stopifnot(!is.null(indexed_features))
+    ids <- unified_meta %>%
+      dplyr::distinct(book_id) %>%
+      dplyr::pull(book_id)
+    book_features <- unified_meta %>%
+      dplyr::select(book_id) %>%
       dplyr::inner_join(
-        unified_meta %>%
-          dplyr::select(book_id),
-        by = dplyr::join_by(id == book_id)
+        eav,
+        by = dplyr::join_by(book_id == id)
       ) %>%
       dplyr::filter(!.data$feature %in% c("tag", "title_original")) %>%
       dplyr::select(book_id, feature, value) %>%
       dplyr::distinct()
-    row_index <- unified_meta$book_id
+    row_index <- match(book_features$book_id, ids)
     col_index <- match(
       paste0(book_features$feature, "=", as.character(book_features$value)),
       indexed_features$key)
+    Y <- NULL
   } else {
     ids <- unified_meta %>%
       dplyr::filter(node_type == "book") %>%
@@ -1018,6 +1034,12 @@ prep_encoder_data <- function(eav, unified_meta, binary_embedding = NULL, indexe
       paste0(book_features$feature, "=", as.character(book_features$value)),
       indexed_features$key)
   }
+  if (any(is.na(row_index))) {
+    warning("Dropped ", sum(is.na(row_index)), " book-feature rows with unknown book_id.")
+  }
+  keep_idx <- !is.na(row_index) & !is.na(col_index)
+  row_index <- row_index[keep_idx]
+  col_index <- col_index[keep_idx]
   X <- Matrix::sparseMatrix(
     i = row_index,
     j = col_index,
@@ -1035,6 +1057,7 @@ prep_encoder_data <- function(eav, unified_meta, binary_embedding = NULL, indexe
 
 ## Build X and Y
 ```{r}
+print("Building train_data (expects node_id mapping)")
 train_data <- prep_encoder_data(eav, unified_meta_train, binary_embedding_train)
 # test_data <- prep_encoder_data(eav, unified_meta_test, NULL, train_data$features)
 ```
@@ -1059,6 +1082,77 @@ train_acc <- evaluate_projection(train_data$Y, train_data$Y_projected, 1)
 print(paste("Training accuracy", train_acc))
 
 # Also build functions to do a manual check
+```
+
+## Cache encoder artifacts and tag codes
+```{r}
+encoder_features <- train_data$features
+encoder_models <- model
+
+tag_meta_combined <- unified_meta_train %>%
+  dplyr::filter(node_type == "tag") %>%
+  dplyr::arrange(row_id) %>%
+  dplyr::mutate(
+    row_id_train = row_id,
+    row_id = dplyr::row_number(),
+    source = "tag_spectral"
+  )
+
+bit_names <- paste0("bit_", seq_len(ncol(binary_embedding_train)))
+colnames(binary_embedding_train) <- bit_names
+tag_codes <- binary_embedding_train[tag_meta_combined$row_id_train, , drop = FALSE]
+colnames(tag_codes) <- bit_names
+```
+
+## Build projected codes for all books
+```{r}
+book_ids_all <- eav %>%
+  dplyr::filter(feature == "title_original") %>%
+  dplyr::distinct(id) %>%
+  dplyr::arrange(id) %>%
+  dplyr::rename(book_id = id)
+
+book_titles_all <- eav %>%
+  dplyr::filter(feature == "title_original") %>%
+  dplyr::transmute(book_id = as.integer(id), book_title = as.character(value)) %>%
+  dplyr::distinct()
+
+unified_meta_all_books <- book_ids_all %>%
+  dplyr::mutate(book_id = as.integer(book_id)) %>%
+  dplyr::left_join(book_titles_all, by = "book_id")
+
+stopifnot("book_id" %in% names(unified_meta_all_books))
+
+print("Building all_data (expects plain book_id metadata)")
+all_data <- prep_encoder_data(
+  eav              = eav,
+  unified_meta     = unified_meta_all_books,
+  binary_embedding = NULL,
+  indexed_features = encoder_features
+)
+
+book_codes_projected <- encode_books(encoder_models, all_data$X)
+colnames(book_codes_projected) <- bit_names
+```
+
+## Assemble unified codes and metadata
+```{r}
+codes_all <- rbind(tag_codes, book_codes_projected)
+
+book_meta_all <- tibble::tibble(
+  book_id = all_data$ids,
+  row_id = seq_len(length(all_data$ids)) + nrow(tag_codes),
+  node_type = "book",
+  source = "book_projected"
+) %>%
+  dplyr::left_join(unified_meta_all_books, by = "book_id")
+
+unified_meta_all <- dplyr::bind_rows(
+  tag_meta_combined %>%
+    dplyr::select(row_id, node_type, source, tag_name),
+  book_meta_all %>%
+    dplyr::select(row_id, node_type, source, book_id, book_title)
+)
 ```
 
 Done
@@ -1295,15 +1389,34 @@ best_i_p   <- which.max(f1_p)
 best_k_p   <- k_vals_p[best_i_p]           # ≤ best_k_p differing bits
 best_f1_p  <- f1_p[best_i_p]
 
+# Precision-constrained threshold (prefer high precision to limit false positives)
+target_precision <- 0.8
+eligible_idx <- which(!is.na(prec_p) & prec_p >= target_precision)
+if (length(eligible_idx) > 0) {
+  best_i_p_precision <- eligible_idx[which.max(f1_p[eligible_idx])]
+  best_k_p_precision <- k_vals_p[best_i_p_precision]
+  precision_at_best  <- prec_p[best_i_p_precision]
+  recall_at_best     <- rec_p[best_i_p_precision]
+} else {
+  best_i_p_precision <- best_i_p
+  best_k_p_precision <- best_k_p
+  precision_at_best  <- prec_p[best_i_p_precision]
+  recall_at_best     <- rec_p[best_i_p_precision]
+  warning(sprintf("No Hamming thresholds meet precision ≥ %.2f; using unconstrained best_k_p.", target_precision))
+}
+
 # Accuracy at the chosen integer threshold
 pred_best_p <- dist_vec_p <= best_k_p
 acc_best_p  <- mean(pred_best_p == truth_vec)
 
 # Provide equivalent similarity margin for later sections that expect it
 best_margin_p <- 1 - (best_k_p / kbits_p)
+best_margin_p_precision <- 1 - (best_k_p_precision / kbits_p)
 
 cat(sprintf("Projected codes — best integer Hamming threshold: ≤ %d of %d bits differ | F1 = %.3f | Accuracy = %.3f\n",
             best_k_p, kbits_p, best_f1_p, acc_best_p))
+cat(sprintf("Projected codes — precision-constrained threshold: ≤ %d bits differ | precision = %.3f | recall = %.3f\n",
+            best_k_p_precision, precision_at_best, recall_at_best))
 
 # ---- Single chart: Precision / Recall / F1 vs Hamming distance (colored) ----
 plot(k_vals_p, f1_p, type = "l", lwd = 2, col = "firebrick",
@@ -1314,31 +1427,55 @@ plot(k_vals_p, f1_p, type = "l", lwd = 2, col = "firebrick",
 lines(k_vals_p, prec_p, lwd = 2, col = "steelblue")
 lines(k_vals_p, rec_p,  lwd = 2, col = "darkgreen")
 abline(v = best_k_p, lty = 2, col = "gray40")
+abline(v = best_k_p_precision, lty = 3, col = "steelblue")
 legend("bottomright",
-       legend = c("F1", "Precision", "Recall", sprintf("Best ≤ %d bits", best_k_p)),
-       col    = c("firebrick", "steelblue", "darkgreen", "gray40"),
-       lty    = c(1,1,1,2), lwd = c(2,2,2,1), bty = "n")
+       legend = c("F1", "Precision", "Recall",
+                  sprintf("Best F1 ≤ %d bits", best_k_p),
+                  sprintf("Precision ≥ %.2f ≤ %d bits", target_precision, best_k_p_precision)),
+       col    = c("firebrick", "steelblue", "darkgreen", "gray40", "steelblue"),
+       lty    = c(1,1,1,2,3), lwd = c(2,2,2,1,1), bty = "n")
 ```
-## Get recommendations
+## 8. Get tag recommendations for in-sample books using in-sample codes
 ```{r}
 existing_tags_df <- get_existing_tags(eav)
+
 unified_meta_train <- build_unified_metadata(eav, 
                                              book_ids_train, 
                                              tag_names_train, 
                                              node_types_train, 
                                              binary_embedding_train, md_db)
-# Optional: build flat Hamming index for faster queries
-hamming_idx <- build_hamming_index(binary_embedding_train, unified_meta_train)
-recs <- recommend_tags(
-  margin             = best_k_p,
+
+book_ids_train_rows <- book_ids_train %>%
+  dplyr::left_join(unified_meta_train %>% dplyr::select(node_id, row_id), by = "node_id")
+
+book_ids_all_rows <- book_meta_all %>%
+  dplyr::select(book_id, row_id)
+
+hamming_idx_train <- build_hamming_index(binary_embedding_train, unified_meta_train)
+hamming_idx_all   <- build_hamming_index(codes_all, unified_meta_all)
+
+recs_train <- recommend_tags(
+  margin             = best_k,
   num_neighbors      = 25,
-  type               = "tag",        # or NULL
+  type               = "tag",
   unified_meta       = unified_meta_train,
-  book_ids           = book_ids_train,
+  book_ids           = book_ids_train_rows,
   tag_names          = tag_names_train,
   existing_tags_df   = existing_tags_df,
   binary_embedding   = binary_embedding_train,
-  index              = hamming_idx
+  index              = hamming_idx_train
+)
+
+recs_all <- recommend_tags(
+  margin             = best_k_p_precision,
+  num_neighbors      = 25,
+  type               = "tag",
+  unified_meta       = unified_meta_all,
+  book_ids           = book_ids_all_rows,
+  tag_names          = tag_names_train,
+  existing_tags_df   = existing_tags_df,
+  binary_embedding   = codes_all,
+  index              = hamming_idx_all
 )
 
 if (!exists("original_tag_values", inherits = FALSE)) {
@@ -1358,268 +1495,47 @@ existing_tags_for_union <- existing_tags_df %>%
     distance = NA_real_
   )
 
-recs_with_existing <- dplyr::bind_rows(
-  recs %>%
+prepare_actions <- function(recs_tbl, unified_meta_tbl) {
+  recs_filtered <- recs_tbl %>%
+    dplyr::filter(tag_name %in% original_tag_values) %>%
     dplyr::mutate(
       book_id = as.character(book_id),
       tag_name = as.character(tag_name)
-    ),
-  existing_tags_for_union
-) %>%
-  dplyr::distinct(book_id, tag_name, .keep_all = TRUE)
+    )
 
-actions_df <- summarize_tag_actions(
-  recs = recs_with_existing,
-  existing_tags = existing_tags_df,                # all books considered untagged
-  unified_meta = unified_meta_train    # has book_id + book_title
-)
-```
-TODO:  check on filtering by exploded tags.  eg. magic and magic.card and maybe 
+  recs_with_existing <- dplyr::bind_rows(
+    recs_filtered,
+    existing_tags_for_union
+  ) %>%
+    dplyr::distinct(book_id, tag_name, .keep_all = TRUE)
 
-## 8. for each in-sample book, considering the known labels as the first list, create a 2nd and 3rd labels list using the in-sample codes plus margin and projected codes plus margin
-```{r}
-## 8. Neighbor tag lists by book (integer Hamming; robust + self-check)
-
-suppressPackageStartupMessages({
-  library(dplyr); library(tibble); library(Matrix); library(purrr); library(tidyr); library(jsonlite)
-})
-
-# ------------------------ Guards & inputs ------------------------------------
-req_ok <- all(
-  exists("book_tags_train", inherits = FALSE),
-  exists("book_ids_train",  inherits = FALSE)
-)
-if (!req_ok) stop("Section 8 requires book_tags_train and book_ids_train in memory.")
-
-# Optional: try to load thresholds from calibration if not present
-if (!exists("best_k", inherits = FALSE) || !is.numeric(best_k)) {
-  if (file.exists("calibremd_margins_calibration.rds")) {
-    calibration <- readRDS("calibremd_margins_calibration.rds")
-    if (!is.null(calibration$in_sample$best_k)) best_k <- calibration$in_sample$best_k
-    if (is.null(best_k) || is.na(best_k))
-      stop("best_k not found; run Section 6 or provide calibremd_margins_calibration.rds.")
-  } else {
-    stop("best_k not found and calibremd_margins_calibration.rds is missing. Run Section 6 first.")
-  }
-}
-
-# Projected threshold is optional
-have_projected_threshold <- exists("best_k_p", inherits = FALSE) && is.numeric(best_k_p)
-
-# ------------------------ Align rows (books) ---------------------------------
-# We need the row order we will use throughout Section 8. Prefer train_data if present.
-if (exists("train_data", inherits = FALSE) && !is.null(train_data$ids)) {
-  node_ids <- as.integer(train_data$ids)
-} else if (exists("all_data", inherits = FALSE) && !is.null(all_data$ids)) {
-  node_ids <- as.integer(all_data$ids)  # fallback to a global codebook if you use one
-} else {
-  stop("Neither train_data$ids nor all_data$ids is available to define row order.")
-}
-
-row_map <- tibble(row_ix = seq_along(node_ids), node_id = node_ids) %>%
-  left_join(book_ids_train, by = "node_id") %>%
-  distinct(row_ix, node_id, book_id)
-
-if (any(is.na(row_map$book_id))) {
-  # Some node_ids in the code matrix are not present in book_ids_train (training mapping).
-  # Keep only rows we can map back to a book_id.
-  keep <- which(!is.na(row_map$book_id))
-  if (length(keep) == 0) stop("No overlap between code rows and training book_ids.")
-  row_map <- row_map[keep, , drop = FALSE]
-}
-
-n_books <- nrow(row_map)
-
-# ------------------------ Get code matrices ----------------------------------
-# In-sample codes (Y): must be binary 0/1
-# Prefer train_data$Y in the same node_id order
-get_codes <- function(candidate_Y, candidate_ids, target_node_ids) {
-  if (is.null(candidate_Y) || is.null(candidate_ids)) return(NULL)
-  idx <- match(target_node_ids, as.integer(candidate_ids))
-  if (all(is.na(idx))) return(NULL)
-  candidate_Y[idx[!is.na(idx)], , drop = FALSE]
-}
-
-Y <- NULL
-if (exists("train_data", inherits = FALSE) && !is.null(train_data$Y)) {
-  Y <- get_codes(train_data$Y, train_data$ids, row_map$node_id)
-}
-if (is.null(Y) && exists("all_data", inherits = FALSE) && !is.null(all_data$Y)) {
-  Y <- get_codes(all_data$Y, all_data$ids, row_map$node_id)
-}
-if (is.null(Y)) stop("Cannot find a code matrix (Y). Ensure train_data$Y or all_data$Y is available.")
-
-Y <- as.matrix(Y)
-if (!all(Y %in% c(0,1))) stop("Y must be binary 0/1 for integer Hamming.")
-storage.mode(Y) <- "integer"
-kbits <- ncol(Y)
-
-# Optional projected codes (Yp)
-Yp <- NULL
-if (exists("train_data", inherits = FALSE) && !is.null(train_data$Y_projected)) {
-  Yp <- get_codes(train_data$Y_projected, train_data$ids, row_map$node_id)
-} else if (exists("all_data", inherits = FALSE) && !is.null(all_data$Y_projected)) {
-  Yp <- get_codes(all_data$Y_projected, all_data$ids, row_map$node_id)
-}
-if (!is.null(Yp)) {
-  Yp <- as.matrix(Yp)
-  if (!all(Yp %in% c(0,1))) Yp <- (Yp >= 0.5) * 1L
-  storage.mode(Yp) <- "integer"
-}
-
-# ------------------------ Build tag incidence M ------------------------------
-# If tag_names_train exists we use it to stabilize columns; else infer from book_tags_train
-if (exists("tag_names_train", inherits = FALSE)) {
-  tag_levels <- tag_names_train %>% arrange(node_id) %>% pull(tag_name)
-} else {
-  tag_levels <- book_tags_train %>% distinct(tag_name) %>% arrange(tag_name) %>% pull(tag_name)
-}
-n_tags <- length(tag_levels)
-
-bt_train <- book_tags_train %>%
-  inner_join(row_map %>% select(book_id, row_ix), by = "book_id") %>%
-  mutate(col_ix = match(tag_name, tag_levels)) %>%
-  filter(!is.na(row_ix), !is.na(col_ix))
-
-M <- Matrix::sparseMatrix(
-  i = bt_train$row_ix,
-  j = bt_train$col_ix,
-  x = 1L,
-  dims = c(n_books, n_tags)
-)
-
-# ------------------------ Compute integer Hamming distances ------------------
-# d_H(i,j) = ones_i + ones_j - 2 * (Y_i · Y_j)
-compute_D <- function(B) {
-  ones <- Matrix::rowSums(B)
-  S    <- B %*% Matrix::t(B)
-  D    <- (matrix(ones, nrow(B), nrow(B)) +
-           matrix(ones, nrow(B), nrow(B), byrow = TRUE)) - 2 * S
-  D <- as.matrix(D)
-  diag(D) <- NA_integer_
-  D
-}
-
-D <- compute_D(Y)
-
-D_p <- NULL
-if (!is.null(Yp) && have_projected_threshold) {
-  D_p <- compute_D(Yp)
-}
-
-# ------------------------ Adjacency (neighbors within best_k / best_k_p) ----
-L_in <- Matrix((D <= best_k) * 1L, sparse = TRUE)
-diag(L_in) <- 0L
-
-L_pr <- NULL
-if (!is.null(D_p) && have_projected_threshold) {
-  L_pr <- Matrix((D_p <= best_k_p) * 1L, sparse = TRUE)
-  diag(L_pr) <- 0L
-}
-
-# ------------------------ Aggregate neighbor tag counts ----------------------
-counts_in <- L_in %*% M
-counts_pr <- if (!is.null(L_pr)) L_pr %*% M else NULL
-
-# Helper serializers
-topN_to_string <- function(x, tag_names, N = 20L) {
-  if (all(x == 0)) return("")
-  ix <- which(x > 0)
-  ord <- ix[order(x[ix], decreasing = TRUE)]
-  ord <- head(ord, N)
-  paste0(tag_names[ord], ":", as.integer(x[ord]), collapse = " | ")
-}
-vec_to_json <- function(x, tag_names, N = 200L) {
-  if (all(x == 0)) return("[]")
-  ix <- which(x > 0)
-  ord <- ix[order(x[ix], decreasing = TRUE)]
-  ord <- head(ord, N)
-  jsonlite::toJSON(tag_names[ord], auto_unbox = TRUE)
-}
-
-# Own tag columns per book (for minus-own)
-own_cols_by_row <- split(bt_train$col_ix, bt_train$row_ix)
-
-make_output <- function(L, counts, label) {
-  if (is.null(L) || is.null(counts)) return(NULL)
-  neigh_ct <- Matrix::rowSums(L)
-
-  # counts minus own tags
-  counts_mo <- counts
-  if (length(own_cols_by_row) > 0) {
-    for (i in seq_len(n_books)) {
-      cols <- own_cols_by_row[[as.character(i)]]
-      if (!is.null(cols) && length(cols)) counts_mo[i, cols] <- 0
-    }
-  }
-
-  tibble(
-    row_ix         = seq_len(n_books),
-    book_id        = row_map$book_id,
-    node_id        = row_map$node_id,
-    neighbor_count = as.integer(neigh_ct),
-    neighbor_tags          = purrr::map_chr(seq_len(n_books), ~ vec_to_json(counts[.x, ],  tag_levels)),
-    neighbor_top20         = purrr::map_chr(seq_len(n_books), ~ topN_to_string(counts[.x, ],  tag_levels, 20L)),
-    neighbor_tags_minus_own= purrr::map_chr(seq_len(n_books), ~ vec_to_json(counts_mo[.x, ], tag_levels)),
-    neighbor_top20_minus_own= purrr::map_chr(seq_len(n_books), ~ topN_to_string(counts_mo[.x, ], tag_levels, 20L)),
-    source = label
+  summarize_tag_actions(
+    recs = recs_with_existing,
+    existing_tags = existing_tags_df,
+    unified_meta = unified_meta_tbl %>%
+      dplyr::filter(!is.na(book_id)) %>%
+      dplyr::select(book_id, book_title) %>%
+      dplyr::distinct()
   )
 }
 
-out_in  <- make_output(L_in, counts_in, "in_sample")
-out_pr  <- if (!is.null(counts_pr)) make_output(L_pr, counts_pr, "projected") else NULL
-
-neighbors_tags <- bind_rows(out_in, out_pr)
-
-# Optional: attach titles
-if (exists("catalog_df", inherits = FALSE)) {
-  neighbors_tags <- neighbors_tags %>%
-    left_join(catalog_df %>% select(book_id = id, title), by = "book_id") %>%
-    relocate(title, .after = book_id)
-} else if (exists("titles_all", inherits = FALSE)) {
-  neighbors_tags <- neighbors_tags %>%
-    left_join(titles_all, by = "book_id") %>%
-    relocate(title, .after = book_id)
-}
-
-# ------------------------ Save & self-check ----------------------------------
-write.csv(neighbors_tags %>% arrange(source, desc(neighbor_count)),
-          "calibremd_neighbor_tags_by_book.csv", row.names = FALSE)
-if (!is.null(out_in))  write.csv(out_in, "calibremd_neighbor_tags_in_sample.csv", row.names = FALSE)
-if (!is.null(out_pr))  write.csv(out_pr, "calibremd_neighbor_tags_projected.csv", row.names = FALSE)
-
-cat(sprintf(
-  "Section 8 complete.\nBooks: %d | Tags: %d | best_k: %s%s\nSaved:\n - calibremd_neighbor_tags_by_book.csv%s%s\n",
-  n_books, n_tags, as.character(best_k),
-  if (have_projected_threshold) sprintf(" | best_k_p: %s", as.character(best_k_p)) else "",
-  if (!is.null(out_in))  "\n - calibremd_neighbor_tags_in_sample.csv" else "",
-  if (!is.null(out_pr))  "\n - calibremd_neighbor_tags_projected.csv" else ""
-))
-
-# Lightweight self-checks
-stopifnot(nrow(neighbors_tags) %in% c(n_books, 2L * n_books))
-stopifnot(all(neighbors_tags$neighbor_count >= 0))
+actions_df_train <- prepare_actions(recs_train, unified_meta_train)
+actions_df_all   <- prepare_actions(recs_all, unified_meta_all)
+actions_df <- actions_df_train
+actions_df_full <- actions_df_all
 ```
 
-## 9. for each in-sample book compute Jaccard similarity between the ground truth label set and each of the two sets above (labels from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
-
+## 9. Get tag recommendations for all books using projected codes
 ```{r}
+## 9. Get tag recommendations for all books using projected codes
 
-```
-## 9a. Take any book by id, project the code for the book, compare labels from the projected code with ground truth labels if any exist for that book, and recommend labels that should be either added or removed, ranked by most important to add or delete.
-
-
-```{r}
 
 ```
 
-## 10. for each in-sample tag, considering the known books as the first list, create a 2nd and 3rd books list using the in-sample codes plus margin and projected codes plus margin.
-```{r}
+## 10. Get recommendations for untagged books
 
-```
-
-## 11. for each in-sample tag compute Jaccard similarity between the ground truth book set and each of the two sets above (books from the in-sample codes, and the projected codes). Display the worst offenders per list and overall Jaccard similarity per list.
 ```{r}
+## 9. Get recommendations for untagged books
 
 ```
 
@@ -1660,5 +1576,3 @@ stopifnot(all(neighbors_tags$neighbor_count >= 0))
   * anchor graph hashing
   * self taught hashing with clever feature engineering (landmark-augmented self-taught hashing)
 * find nearest tag using the same old approach above
-
-
