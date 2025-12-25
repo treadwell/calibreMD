@@ -40,9 +40,9 @@ setup_packages()
 # Load data from SQLite to EAV table
 
 ```{r}
-#dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
+dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
 #dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
-dataDir <- '/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/calibreGPT_test_lg'
 
 md_db <- find_md_db(dataDir)
 

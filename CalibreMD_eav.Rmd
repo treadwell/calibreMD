@@ -42,8 +42,8 @@ setup_packages()
 ```{r}
 
 #dataDir <- '/Users/kbrooks/Dropbox/Books/Calibre Travel Library'
-#dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
-dataDir <- '/Users/kbrooks/Dropbox/Books/calbreGPT'
+dataDir <- '/Users/kbrooks/Dropbox/Books/AI Travel Library'
+#dataDir <- '/Users/kbrooks/Dropbox/Books/calbreGPT'
 
 md_db <- find_md_db(dataDir)
 

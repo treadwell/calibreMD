@@ -546,3 +546,219 @@ recommend_tags_for_book <- function(eav, predictions_probs, book_id, threshold =
     arrange(desc(prob)) %>%
     select(book_id, tag, prob)  # Ensure consistent column order
 }
+
+validate_prob_threshold <- function(value, name) {
+  if (is.na(value) || value < 0 || value > 1) {
+    stop(name, " must be between 0 and 1")
+  }
+}
+
+assert_results_db_tables <- function(con, tables) {
+  missing <- tables[!vapply(tables, function(name) DBI::dbExistsTable(con, name), logical(1))]
+  if (length(missing) > 0) {
+    stop("Results DB is missing required tables: ", paste(missing, collapse = ", "))
+  }
+}
+
+escape_like_pattern <- function(text) {
+  gsub("([%_\\\\])", "\\\\\\1", text, perl = TRUE)
+}
+
+#' Write CalibreMD results to a SQLite database
+#' @param db_path Path to the SQLite database to write
+#' @param eav The EAV data frame
+#' @param predictions_probs Prediction probabilities from predict_tags
+#' @param pred_long_all Optional long-format predictions (book_id, tag, prob)
+#' @param add_threshold Threshold for add recommendations
+#' @param remove_threshold Threshold for remove recommendations
+#' @param overwrite Whether to overwrite existing tables
+#' @param data_dir Optional source library path to store in metadata
+#' @return The db_path (invisibly)
+#' @export
+write_results_db <- function(db_path,
+                             eav,
+                             predictions_probs = NULL,
+                             pred_long_all = NULL,
+                             add_threshold = 0.75,
+                             remove_threshold = 0.01,
+                             overwrite = TRUE,
+                             data_dir = NULL) {
+  if (is.null(pred_long_all)) {
+    if (is.null(predictions_probs)) {
+      stop("Provide predictions_probs or pred_long_all")
+    }
+    pred_long_all <- get_label_probabilities(predictions_probs)
+  }
+
+  if (!all(c("book_id", "tag", "prob") %in% names(pred_long_all))) {
+    stop("pred_long_all must have columns: book_id, tag, prob")
+  }
+
+  validate_prob_threshold(add_threshold, "add_threshold")
+  validate_prob_threshold(remove_threshold, "remove_threshold")
+
+  tag_counts <- get_tag_counts(eav) %>%
+    rename(book_id = id)
+  book_summary <- get_book_summary(eav) %>%
+    rename(book_id = id)
+  tag_summary <- get_tag_summary(eav) %>%
+    rename(tag = value)
+  existing_tags <- get_existing_tags(eav) %>%
+    rename(tag = existing_tag)
+
+  recommended_add <- get_recommended_add(eav, pred_long_all, add_threshold)
+  recommended_remove <- get_recommended_remove(eav, pred_long_all, remove_threshold)
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), dbname = db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  DBI::dbWriteTable(con, "tag_counts", tag_counts, overwrite = overwrite, row.names = FALSE)
+  DBI::dbWriteTable(con, "book_summary", book_summary, overwrite = overwrite, row.names = FALSE)
+  DBI::dbWriteTable(con, "tag_summary", tag_summary, overwrite = overwrite, row.names = FALSE)
+  DBI::dbWriteTable(con, "existing_tags", existing_tags, overwrite = overwrite, row.names = FALSE)
+  DBI::dbWriteTable(con, "predictions", pred_long_all, overwrite = overwrite, row.names = FALSE)
+  DBI::dbWriteTable(con, "recommendations_add", recommended_add, overwrite = overwrite, row.names = FALSE)
+  DBI::dbWriteTable(con, "recommendations_remove", recommended_remove, overwrite = overwrite, row.names = FALSE)
+
+  meta <- data.frame(
+    key = c("created_at", "data_dir", "add_threshold", "remove_threshold"),
+    value = c(
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S %z"),
+      if (is.null(data_dir)) "" else as.character(data_dir),
+      as.character(add_threshold),
+      as.character(remove_threshold)
+    ),
+    stringsAsFactors = FALSE
+  )
+  DBI::dbWriteTable(con, "meta", meta, overwrite = TRUE, row.names = FALSE)
+
+  DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_predictions_book ON predictions (book_id)")
+  DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_predictions_tag ON predictions (tag)")
+  DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_predictions_book_tag ON predictions (book_id, tag)")
+  DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_existing_tags_book_tag ON existing_tags (book_id, tag)")
+  DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_book_summary_book ON book_summary (book_id)")
+  DBI::dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_tag_summary_tag ON tag_summary (tag)")
+
+  invisible(db_path)
+}
+
+#' Get recommended tags for a book from a results database
+#' @param db_path Path to the SQLite results database
+#' @param book_id Book ID to recommend tags for
+#' @param threshold Minimum probability threshold
+#' @param limit Optional maximum number of tags to return
+#' @return A data frame with columns book_id, title, tag, prob
+#' @export
+get_recommended_tags_for_book_db <- function(db_path,
+                                             book_id,
+                                             threshold = 0.8,
+                                             limit = NULL) {
+  validate_prob_threshold(threshold, "threshold")
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), dbname = db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  assert_results_db_tables(con, c("predictions", "existing_tags", "book_summary"))
+
+  book_exists <- DBI::dbGetQuery(
+    con,
+    "SELECT 1 FROM book_summary WHERE book_id = ? LIMIT 1",
+    params = list(book_id)
+  )
+  if (nrow(book_exists) == 0) {
+    stop(sprintf("Book ID %s not found in the results database", book_id))
+  }
+
+  query <- paste(
+    "SELECT p.book_id, s.title, p.tag, p.prob",
+    "FROM predictions p",
+    "LEFT JOIN existing_tags e ON p.book_id = e.book_id AND p.tag = e.tag",
+    "LEFT JOIN book_summary s ON p.book_id = s.book_id",
+    "WHERE p.book_id = ? AND p.prob >= ? AND e.tag IS NULL",
+    "ORDER BY p.prob DESC"
+  )
+  result <- DBI::dbGetQuery(con, query, params = list(book_id, threshold))
+
+  if (!is.null(limit) && is.finite(limit)) {
+    result <- utils::head(result, n = limit)
+  }
+
+  if (nrow(result) == 0) {
+    return(tibble::tibble(
+      book_id = numeric(0),
+      title = character(0),
+      tag = character(0),
+      prob = numeric(0)
+    ))
+  }
+
+  result
+}
+
+#' Get recommended books for a tag from a results database
+#' @param db_path Path to the SQLite results database
+#' @param tag_name Tag to recommend books for
+#' @param threshold Minimum probability threshold
+#' @param limit Optional maximum number of books to return
+#' @param exclude_descendants Exclude books that already have descendant tags
+#' @return A data frame with columns book_id, title, tag, prob
+#' @export
+get_recommended_books_for_tag_db <- function(db_path,
+                                             tag_name,
+                                             threshold = 0.5,
+                                             limit = NULL,
+                                             exclude_descendants = TRUE) {
+  if (is.na(tag_name) || !nzchar(tag_name)) {
+    stop("tag_name must be a non-empty string")
+  }
+  validate_prob_threshold(threshold, "threshold")
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), dbname = db_path)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  assert_results_db_tables(con, c("predictions", "existing_tags", "book_summary"))
+
+  query <- paste(
+    "SELECT p.book_id, s.title, p.tag, p.prob",
+    "FROM predictions p",
+    "LEFT JOIN existing_tags e ON p.book_id = e.book_id AND p.tag = e.tag",
+    "LEFT JOIN book_summary s ON p.book_id = s.book_id"
+  )
+
+  params <- list(tag_name, threshold)
+
+  if (isTRUE(exclude_descendants)) {
+    descendant_like <- paste0(escape_like_pattern(tag_name), ".%")
+    query <- paste(
+      query,
+      "LEFT JOIN existing_tags d ON p.book_id = d.book_id AND d.tag LIKE ? ESCAPE '\\\\'"
+    )
+    params <- list(descendant_like, tag_name, threshold)
+  }
+
+  query <- paste(
+    query,
+    "WHERE p.tag = ? AND p.prob >= ? AND e.tag IS NULL"
+  )
+  if (isTRUE(exclude_descendants)) {
+    query <- paste(query, "AND d.tag IS NULL")
+  }
+  query <- paste(query, "ORDER BY p.prob DESC")
+
+  result <- DBI::dbGetQuery(con, query, params = params)
+
+  if (!is.null(limit) && is.finite(limit)) {
+    result <- utils::head(result, n = limit)
+  }
+
+  if (nrow(result) == 0) {
+    return(tibble::tibble(
+      book_id = numeric(0),
+      title = character(0),
+      tag = character(0),
+      prob = numeric(0)
+    ))
+  }
+
+  result
+}
