@@ -6,3 +6,5 @@
 *_files/
 .Rdata
 .DS_Store
+.plan.md
+calibremd_*.csv
