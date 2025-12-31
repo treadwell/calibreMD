@@ -271,14 +271,28 @@ prep_dataset <- function(eav){
 
 #' Train models for tag prediction
 #' @param dataset A list containing feature matrix and tag matrix
+#' @param progress Whether to log progress to the console
+#' @param progress_every Report progress every N tags when progress is TRUE
 #' @return A list of trained models
 #' @export
-train_models <- function(dataset){
+train_models <- function(dataset, progress = FALSE, progress_every = 10){
   requireNamespace("xgboost", quietly = TRUE)
   X <- dataset$X
   Y <- dataset$Y
   models <- list()
-  for (tag in colnames(Y)) {
+  tag_names <- colnames(Y)
+  n_tags <- length(tag_names)
+  if (isTRUE(progress)) {
+    if (is.na(progress_every) || progress_every < 1) {
+      progress_every <- 1
+    }
+    message(sprintf("Training %d tag models...", n_tags))
+  }
+  for (i in seq_along(tag_names)) {
+    tag <- tag_names[[i]]
+    if (isTRUE(progress) && (i == 1 || i == n_tags || (i %% progress_every == 0))) {
+      message(sprintf("Training tag %d/%d: %s", i, n_tags, tag))
+    }
     # Extract label vector and convert to numeric
     y <- as.numeric(Y[, tag])
     # Construct DMatrix using sparse feature matrix
@@ -297,9 +311,11 @@ train_models <- function(dataset){
 #' Predict tags using trained models
 #' @param models List of trained models
 #' @param dataset Dataset containing features
+#' @param progress Whether to log progress to the console
+#' @param progress_every Report progress every N tags when progress is TRUE
 #' @return A data frame of predictions
 #' @export
-predict_tags <- function(models, dataset){
+predict_tags <- function(models, dataset, progress = FALSE, progress_every = 25){
   requireNamespace("xgboost", quietly = TRUE)
   book_features <- dataset$book_features
   # Assume predict_ids and book_features are defined
@@ -313,7 +329,19 @@ predict_tags <- function(models, dataset){
   pred_probs_new <- data.frame(book_id = predict_ids)
   
   # Loop over all models/tags
-  for (tag in names(models)) {
+  tag_names <- names(models)
+  n_tags <- length(tag_names)
+  if (isTRUE(progress)) {
+    if (is.na(progress_every) || progress_every < 1) {
+      progress_every <- 1
+    }
+    message(sprintf("Predicting %d tag models...", n_tags))
+  }
+  for (i in seq_along(tag_names)) {
+    tag <- tag_names[[i]]
+    if (isTRUE(progress) && (i == 1 || i == n_tags || (i %% progress_every == 0))) {
+      message(sprintf("Predicting tag %d/%d: %s", i, n_tags, tag))
+    }
     model <- models[[tag]]
     used_features <- model$feature_names
     
@@ -561,7 +589,7 @@ assert_results_db_tables <- function(con, tables) {
 }
 
 escape_like_pattern <- function(text) {
-  gsub("([%_\\\\])", "\\\\\\1", text, perl = TRUE)
+  gsub("([%_!])", "!\\1", text, perl = TRUE)
 }
 
 #' Write CalibreMD results to a SQLite database
@@ -731,7 +759,7 @@ get_recommended_books_for_tag_db <- function(db_path,
     descendant_like <- paste0(escape_like_pattern(tag_name), ".%")
     query <- paste(
       query,
-      "LEFT JOIN existing_tags d ON p.book_id = d.book_id AND d.tag LIKE ? ESCAPE '\\\\'"
+      "LEFT JOIN existing_tags d ON p.book_id = d.book_id AND d.tag LIKE ? ESCAPE '!'"
     )
     params <- list(descendant_like, tag_name, threshold)
   }

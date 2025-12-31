@@ -4,12 +4,16 @@
 \alias{predict_tags}
 \title{Predict tags using trained models}
 \usage{
-predict_tags(models, dataset)
+predict_tags(models, dataset, progress = FALSE, progress_every = 25)
 }
 \arguments{
 \item{models}{List of trained models}
 
 \item{dataset}{Dataset containing features}
+
+\item{progress}{Whether to log progress to the console}
+
+\item{progress_every}{Report progress every N tags when progress is TRUE}
 }
 \value{
 A data frame of predictions

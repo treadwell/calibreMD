@@ -4,10 +4,14 @@
 \alias{train_models}
 \title{Train models for tag prediction}
 \usage{
-train_models(dataset)
+train_models(dataset, progress = FALSE, progress_every = 10)
 }
 \arguments{
 \item{dataset}{A list containing feature matrix and tag matrix}
+
+\item{progress}{Whether to log progress to the console}
+
+\item{progress_every}{Report progress every N tags when progress is TRUE}
 }
 \value{
 A list of trained models
