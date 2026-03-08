@@ -664,6 +664,7 @@ def top_book_tag_pairs_by_gfm_obj(
     titles: Dict[int, str],
     scores: np.ndarray,
     label_names: List[str],
+    book_true_labels: List[List[int]],
     cal_a: float,
     cal_b: float,
     k: int,
@@ -683,7 +684,10 @@ def top_book_tag_pairs_by_gfm_obj(
             continue
         book_id = int(book_ids[i])
         title = titles.get(book_id, "<unknown>")
+        true_set = set(book_true_labels[i])
         for lbl_idx in topk_idx[:gfm_t]:
+            if int(lbl_idx) in true_set:
+                continue
             pairs.append((float(gfm_obj), book_id, title, label_names[int(lbl_idx)]))
     pairs.sort(key=lambda x: (-x[0], x[1], x[3]))
     return pairs[:limit]
@@ -1440,6 +1444,7 @@ def run_meta_mode(args: argparse.Namespace, emb_res: ModeRunResult, elm_res: Mod
         titles=titles,
         scores=scores_all,
         label_names=lbl.label_names,
+        book_true_labels=lbl.book_true_labels,
         cal_a=cal_a_all,
         cal_b=cal_b_all,
         k=args.k,
