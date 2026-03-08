@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-XMLC trainer with two feature modes:
+XMLC trainer that runs two pipelines sequentially:
 - XML-ridge on pooled chunk embeddings from calibregpt.db
-- ELM-ridge (random sigmoid hidden layer) on sparse binary unigram features from full-text-search.db
+- ELM-ridge (random projection hidden layer) on sparse binary metadata features:
+  unigrams from title+comment plus one-hot author/series/publisher
 
 Key features:
-- Selectable feature pipeline (`embeddings` or `elm`).
 - Solves ridge in closed form: W = (X^T X + lambda I)^(-1) X^T Y.
 - Uses inverse propensity weights parameterized by A and B.
 - Tunes (lambda, A, B) with pure-NumPy Gaussian-process Bayesian optimization.
+- Supports BO-skip defaults per pipeline.
 - Evaluates in-sample oracle and GFM F1 diagnostics.
 """
 
@@ -83,6 +84,9 @@ class BowLoadResult:
     n_tokens: int
     vocab_min_df: int
     vocab_max_features: int | None
+    n_author_features: int
+    n_series_features: int
+    n_publisher_features: int
 
 
 def load_pooled_book_embeddings(
@@ -187,24 +191,45 @@ def load_pooled_book_embeddings(
     )
 
 
-def load_sparse_binary_bow_from_fulltext(
+def load_sparse_binary_features_from_metadata(
     library_dir: str,
     vocab_min_df: int,
     vocab_max_features: int | None,
     min_token_len: int = 2,
 ) -> BowLoadResult:
-    db_path = os.path.join(library_dir, "full-text-search.db")
+    db_path = os.path.join(library_dir, "metadata.db")
     if not os.path.exists(db_path):
-        raise FileNotFoundError(f"full-text-search.db not found at {db_path}")
+        raise FileNotFoundError(f"metadata.db not found at {db_path}")
 
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     cur = con.execute(
         """
-        SELECT book AS book_id, searchable_text
-        FROM books_text
-        WHERE length(searchable_text) > 0
-        ORDER BY book, id
+        SELECT
+          b.id AS book_id,
+          b.title AS title,
+          COALESCE(c.text, '') AS comment,
+          COALESCE((
+            SELECT GROUP_CONCAT(a.name, ' || ')
+            FROM books_authors_link bal
+            JOIN authors a ON a.id = bal.author
+            WHERE bal.book = b.id
+          ), '') AS authors,
+          COALESCE((
+            SELECT GROUP_CONCAT(p.name, ' || ')
+            FROM books_publishers_link bpl
+            JOIN publishers p ON p.id = bpl.publisher
+            WHERE bpl.book = b.id
+          ), '') AS publishers,
+          COALESCE((
+            SELECT GROUP_CONCAT(s.name, ' || ')
+            FROM books_series_link bsl
+            JOIN series s ON s.id = bsl.series
+            WHERE bsl.book = b.id
+          ), '') AS series
+        FROM books b
+        LEFT JOIN comments c ON c.book = b.id
+        ORDER BY b.id
         """
     )
 
@@ -212,14 +237,31 @@ def load_sparse_binary_bow_from_fulltext(
     df_counter: Counter[str] = Counter()
     n_rows = 0
     n_tokens = 0
+    book_records: List[Tuple[int, str, List[str], List[str], List[str]]] = []
+    author_df: Counter[str] = Counter()
+    series_df: Counter[str] = Counter()
+    publisher_df: Counter[str] = Counter()
 
     for row in cur:
         n_rows += 1
-        text = str(row["searchable_text"] or "")
+        book_id = int(row["book_id"])
+        title = str(row["title"] or "")
+        comment = str(row["comment"] or "")
+        text = f"{title} {comment}"
         toks = [t for t in TOKEN_RE.findall(text.lower()) if len(t) >= min_token_len]
         n_tokens += len(toks)
         if toks:
             df_counter.update(set(toks))
+        authors = [x.strip() for x in str(row["authors"] or "").split(" || ") if x.strip()]
+        publishers = [x.strip() for x in str(row["publishers"] or "").split(" || ") if x.strip()]
+        series = [x.strip() for x in str(row["series"] or "").split(" || ") if x.strip()]
+        if authors:
+            author_df.update(set(authors))
+        if publishers:
+            publisher_df.update(set(publishers))
+        if series:
+            series_df.update(set(series))
+        book_records.append((book_id, text, authors, series, publishers))
 
     # Build bounded vocabulary by descending DF then lexicographic token for stability.
     items = [(tok, df) for tok, df in df_counter.items() if df >= vocab_min_df]
@@ -227,64 +269,60 @@ def load_sparse_binary_bow_from_fulltext(
     if vocab_max_features is not None and vocab_max_features > 0:
         items = items[:vocab_max_features]
     vocab = {tok: i for i, (tok, _) in enumerate(items)}
-    vocab_size = len(vocab)
-    if vocab_size == 0:
-        raise RuntimeError("Vocabulary is empty. Lower --vocab-min-df or increase available text.")
+    token_vocab_size = len(vocab)
+    if token_vocab_size == 0:
+        raise RuntimeError("Token vocabulary is empty. Lower --vocab-min-df or adjust metadata text fields.")
 
-    # Pass 2: construct sparse binary rows per book.
-    cur = con.execute(
-        """
-        SELECT book AS book_id, searchable_text
-        FROM books_text
-        WHERE length(searchable_text) > 0
-        ORDER BY book, id
-        """
-    )
+    author_items = sorted(author_df.items(), key=lambda x: (-x[1], x[0]))
+    series_items = sorted(series_df.items(), key=lambda x: (-x[1], x[0]))
+    publisher_items = sorted(publisher_df.items(), key=lambda x: (-x[1], x[0]))
+    author_vocab = {val: i for i, (val, _) in enumerate(author_items)}
+    series_vocab = {val: i for i, (val, _) in enumerate(series_items)}
+    publisher_vocab = {val: i for i, (val, _) in enumerate(publisher_items)}
+
+    author_offset = token_vocab_size
+    series_offset = author_offset + len(author_vocab)
+    publisher_offset = series_offset + len(series_vocab)
+    vocab_size = publisher_offset + len(publisher_vocab)
+
     book_ids: List[int] = []
     rows: List[np.ndarray] = []
-    current_book = None
-    current_set: set[int] | None = None
-
-    def flush_current_binary() -> None:
-        nonlocal current_book, current_set
-        if current_book is None or current_set is None:
-            return
-        if current_set:
-            idx = np.asarray(sorted(current_set), dtype=np.int32)
-            book_ids.append(int(current_book))
-            rows.append(idx)
-        current_book = None
-        current_set = None
-
-    for row in cur:
-        book_id = int(row["book_id"])
-        text = str(row["searchable_text"] or "")
-        if current_book is None:
-            current_book = book_id
-            current_set = set()
-        elif book_id != current_book:
-            flush_current_binary()
-            current_book = book_id
-            current_set = set()
-
+    titles: Dict[int, str] = {}
+    for book_id, text, authors, series, publishers in book_records:
+        idx_set: set[int] = set()
         for tok in TOKEN_RE.findall(text.lower()):
             if len(tok) < min_token_len:
                 continue
             j = vocab.get(tok)
             if j is not None:
-                current_set.add(j)
+                idx_set.add(j)
+        for a in authors:
+            ja = author_vocab.get(a)
+            if ja is not None:
+                idx_set.add(author_offset + ja)
+        for s in series:
+            js = series_vocab.get(s)
+            if js is not None:
+                idx_set.add(series_offset + js)
+        for p in publishers:
+            jp = publisher_vocab.get(p)
+            if jp is not None:
+                idx_set.add(publisher_offset + jp)
 
-    flush_current_binary()
+        if idx_set:
+            book_ids.append(book_id)
+            rows.append(np.asarray(sorted(idx_set), dtype=np.int32))
+            titles[book_id] = text.split(" ", 1)[0] if text else "<unknown>"
+
+    # Replace approximate title fallback with exact title map
+    cur_titles = con.execute("SELECT id, title FROM books")
+    exact_titles = {int(r[0]): str(r[1]) for r in cur_titles.fetchall()}
+    for bid in list(titles.keys()):
+        titles[bid] = exact_titles.get(bid, titles[bid])
     con.close()
 
-    md_path = os.path.join(library_dir, "metadata.db")
-    con_md = sqlite3.connect(md_path)
-    cur_md = con_md.execute("SELECT id, title FROM books")
-    titles = {int(r[0]): str(r[1]) for r in cur_md.fetchall()}
-    con_md.close()
-
     if not rows:
-        raise RuntimeError("No usable full-text rows found for BOW features.")
+        raise RuntimeError("No usable metadata-derived sparse rows were found.")
 
     return BowLoadResult(
         book_ids=np.asarray(book_ids, dtype=np.int64),
@@ -296,6 +334,9 @@ def load_sparse_binary_bow_from_fulltext(
         n_tokens=n_tokens,
         vocab_min_df=vocab_min_df,
         vocab_max_features=vocab_max_features,
+        n_author_features=len(author_vocab),
+        n_series_features=len(series_vocab),
+        n_publisher_features=len(publisher_vocab),
     )
 
 
@@ -305,6 +346,19 @@ class LabelData:
     book_true_labels: List[List[int]]
     label_pos_rows: List[np.ndarray]
     label_freq: np.ndarray
+
+
+@dataclass
+class ModeRunResult:
+    mode: str
+    book_ids: np.ndarray
+    label_names: List[str]
+    scores: np.ndarray
+    book_true_labels: List[List[int]]
+    titles: Dict[int, str]
+    oracle_f1: float
+    gfm_f1: float
+    top_pairs: List[Tuple[float, int, str, str]]
 
 
 def load_labels_from_metadata(
@@ -359,6 +413,26 @@ def load_labels_from_metadata(
     label_pos_rows = [np.asarray(v, dtype=np.int64) for v in label_pos_rows_acc]
     label_freq = np.asarray([len(v) for v in label_pos_rows_acc], dtype=np.float64)
 
+    return LabelData(
+        label_names=label_names,
+        book_true_labels=book_true_labels,
+        label_pos_rows=label_pos_rows,
+        label_freq=label_freq,
+    )
+
+
+def build_label_data_from_book_true(
+    label_names: List[str],
+    book_true_labels: List[List[int]],
+) -> LabelData:
+    n_labels = len(label_names)
+    label_pos_rows_acc: List[List[int]] = [[] for _ in range(n_labels)]
+    for row_idx, lbls in enumerate(book_true_labels):
+        for lbl in lbls:
+            if 0 <= lbl < n_labels:
+                label_pos_rows_acc[lbl].append(row_idx)
+    label_pos_rows = [np.asarray(v, dtype=np.int64) for v in label_pos_rows_acc]
+    label_freq = np.asarray([len(v) for v in label_pos_rows_acc], dtype=np.float64)
     return LabelData(
         label_names=label_names,
         book_true_labels=book_true_labels,
@@ -585,6 +659,36 @@ def evaluate_metrics(
     return out
 
 
+def top_book_tag_pairs_by_gfm_obj(
+    book_ids: np.ndarray,
+    titles: Dict[int, str],
+    scores: np.ndarray,
+    label_names: List[str],
+    cal_a: float,
+    cal_b: float,
+    k: int,
+    limit: int = 50,
+) -> List[Tuple[float, int, str, str]]:
+    pairs: List[Tuple[float, int, str, str]] = []
+    n = scores.shape[0]
+    for i in range(n):
+        rank_full = np.argsort(-scores[i]).tolist()
+        topk_idx = rank_full[:k]
+        if not topk_idx:
+            continue
+        topk_scores = scores[i, topk_idx]
+        topk_probs = 1.0 / (1.0 + np.exp(-np.clip(cal_a * topk_scores + cal_b, -40.0, 40.0)))
+        gfm_t, gfm_obj = gfm_cutoff_from_topk_probs(topk_probs)
+        if gfm_t <= 0:
+            continue
+        book_id = int(book_ids[i])
+        title = titles.get(book_id, "<unknown>")
+        for lbl_idx in topk_idx[:gfm_t]:
+            pairs.append((float(gfm_obj), book_id, title, label_names[int(lbl_idx)]))
+    pairs.sort(key=lambda x: (-x[0], x[1], x[3]))
+    return pairs[:limit]
+
+
 def inv_norm_cdf(p: np.ndarray) -> np.ndarray:
     # Acklam's approximation, vectorized for NumPy arrays.
     p = np.asarray(p, dtype=np.float64)
@@ -719,7 +823,10 @@ def build_elm_hidden_features(
         else:
             # Sparse binary input: xW is sum of rows of W at active feature indices.
             z = b + W[idx.astype(np.int64, copy=False)].sum(axis=0)
-        H[i] = 1.0 / (1.0 + np.exp(-np.clip(z, -40.0, 40.0)))
+        # Uncomment for classic ELM nonlinearity:
+        # H[i] = 1.0 / (1.0 + np.exp(-np.clip(z, -40.0, 40.0)))
+        # Random projection only (no activation):
+        H[i] = z
     return H
 
 
@@ -840,44 +947,14 @@ def run_gp_bo(
     return Xo, yo, float(yo[best_idx]), Xo[best_idx]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="XML-ridge / ELM-ridge for XMLC on Calibre data.")
-    parser.add_argument("--library-dir", required=True, help="Calibre library directory containing calibregpt.db + metadata.db")
-    parser.add_argument("--feature-mode", choices=["embeddings", "elm"], default="embeddings", help="Feature pipeline")
-    parser.add_argument("--model", default="text-embedding-ada-002", help="Embedding model name in chunk_embeddings")
-    parser.add_argument("--embedding-dim", type=int, default=1536, help="Expected embedding dimension")
-    parser.add_argument("--vocab-min-df", type=int, default=5, help="Minimum document frequency for unigram vocabulary in ELM mode")
-    parser.add_argument("--vocab-max-features", type=int, default=50000, help="Maximum unigram vocabulary size in ELM mode")
-    parser.add_argument("--bow-min-token-len", type=int, default=2, help="Minimum token length for BOW mode")
-    parser.add_argument("--elm-hidden-nodes", type=int, default=8192, help="Hidden units for random sigmoid layer in ELM mode")
-    parser.add_argument("--elm-seed", type=int, default=None, help="Random seed for ELM hidden layer")
-    parser.add_argument("--min-label-freq", type=int, default=5, help="Drop labels with fewer positives")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument(
-        "--k",
-        type=int,
-        default=32,
-        help="Candidate top-k list; GFM selects cutoff <= k from this list",
-    )
-    parser.add_argument("--sample-size", type=int, default=10, help="How many random books to print")
-    parser.add_argument("--no-train-propensity-weighting", action="store_true", help="Disable propensity weighting in training")
-    parser.add_argument("--bo-init", type=int, default=8, help="Initial random BO trials")
-    parser.add_argument("--bo-iters", type=int, default=20, help="Total BO trials")
-    parser.add_argument("--bo-candidates", type=int, default=1500, help="Candidate points per BO iteration")
-    parser.add_argument("--lambda-log10-min", type=float, default=-6.0)
-    parser.add_argument("--lambda-log10-max", type=float, default=2.0)
-    parser.add_argument("--prop-a-min", type=float, default=0.2)
-    parser.add_argument("--prop-a-max", type=float, default=1.5)
-    parser.add_argument("--prop-b-min", type=float, default=0.5)
-    parser.add_argument("--prop-b-max", type=float, default=5.0)
-    args = parser.parse_args()
+def run_single_mode(args: argparse.Namespace, library_dir: str, mode: str, seed_offset: int = 0) -> ModeRunResult:
     sw = Stopwatch()
+    run_seed = args.seed + seed_offset
+    np.random.seed(run_seed)
+    random.seed(run_seed)
 
-    library_dir = expand_path(args.library_dir)
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-
-    if args.feature_mode == "embeddings":
+    print(f"\n=== Running mode: {mode} ===")
+    if mode == "embeddings":
         emb = load_pooled_book_embeddings(
             library_dir=library_dir,
             model=args.model,
@@ -887,9 +964,9 @@ def main() -> None:
         titles = emb.titles
         X_raw = emb.X
         sw.stamp("Loaded and pooled chunk embeddings")
-    else:
+    elif mode == "elm":
         vmax = None if args.vocab_max_features is not None and args.vocab_max_features <= 0 else args.vocab_max_features
-        bow = load_sparse_binary_bow_from_fulltext(
+        bow = load_sparse_binary_features_from_metadata(
             library_dir=library_dir,
             vocab_min_df=args.vocab_min_df,
             vocab_max_features=vmax,
@@ -897,23 +974,18 @@ def main() -> None:
         )
         book_ids = bow.book_ids
         titles = bow.titles
-        X_raw = None
-        sw.stamp("Loaded sparse binary unigram features")
-
-    lbl = load_labels_from_metadata(
-        library_dir=library_dir,
-        ordered_book_ids=book_ids,
-        min_label_freq=args.min_label_freq,
-    )
-    sw.stamp("Loaded labels from metadata.db")
-
-    if args.feature_mode == "elm":
-        elm_seed = args.elm_seed if args.elm_seed is not None else args.seed
+        lbl = load_labels_from_metadata(
+            library_dir=library_dir,
+            ordered_book_ids=book_ids,
+            min_label_freq=args.min_label_freq,
+        )
+        sw.stamp("Loaded labels from metadata.db")
         bns_scale = compute_bns_feature_weights(
             rows=bow.rows,
             label_pos_rows=lbl.label_pos_rows,
             vocab_size=bow.vocab_size,
         )
+        elm_seed = args.elm_seed if args.elm_seed is not None else run_seed
         X_raw = build_elm_hidden_features(
             rows=bow.rows,
             input_dim=bow.vocab_size,
@@ -921,15 +993,24 @@ def main() -> None:
             seed=elm_seed,
             feature_scale=bns_scale,
         )
-        sw.stamp("Computed max-pooled BNS feature weights and built BNS-scaled ELM hidden features")
+        sw.stamp("Loaded sparse binary metadata features and built BNS-scaled ELM hidden features")
+    else:
+        raise ValueError(f"Unsupported mode: {mode}")
+
+    if mode != "elm":
+        lbl = load_labels_from_metadata(
+            library_dir=library_dir,
+            ordered_book_ids=book_ids,
+            min_label_freq=args.min_label_freq,
+        )
+        sw.stamp("Loaded labels from metadata.db")
 
     n_books, d = X_raw.shape
-    n_labels = len(lbl.label_names)
-    print(f"Feature mode: {args.feature_mode}")
+    print(f"Feature mode: {mode}")
     print(f"Loaded books: {n_books}")
     print(f"Feature dims: {d}")
-    print(f"Labels kept (min freq {args.min_label_freq}): {n_labels}")
-    if args.feature_mode == "embeddings":
+    print(f"Labels kept (min freq {args.min_label_freq}): {len(lbl.label_names)}")
+    if mode == "embeddings":
         print(
             "Chunk usage: total={total}, model_specific={ms}, fallback={fb}, skipped={sk}".format(
                 total=emb.n_chunks_total,
@@ -941,19 +1022,21 @@ def main() -> None:
     else:
         bns_nonzero = int(np.sum(bns_scale > 0))
         print(
-            "BOW usage: rows={rows}, books_with_text={books}, tokens={tokens}, vocab_size={vsz}, min_df={mdf}, max_features={mxf}, elm_hidden={hidden}, bns_nonzero={bnsnz}".format(
+            "ELM feature usage: rows={rows}, books_with_features={books}, text_tokens={tokens}, total_feature_dim={vsz}, token_min_df={mdf}, token_max_features={mxf}, author_features={na}, series_features={ns}, publisher_features={np}, elm_hidden={hidden}, bns_nonzero={bnsnz}".format(
                 rows=bow.n_rows,
                 books=bow.n_books_with_text,
                 tokens=bow.n_tokens,
                 vsz=bow.vocab_size,
                 mdf=bow.vocab_min_df,
                 mxf=(bow.vocab_max_features if bow.vocab_max_features is not None else "None"),
+                na=bow.n_author_features,
+                ns=bow.n_series_features,
+                np=bow.n_publisher_features,
                 hidden=args.elm_hidden_nodes,
                 bnsnz=bns_nonzero,
             )
         )
 
-    # In-sample-only flow: BO and final reporting are all on full data.
     X_all = X_raw.astype(np.float64, copy=False)
     y_all = lbl.book_true_labels
     XtX_all = X_all.T @ X_all
@@ -978,12 +1061,7 @@ def main() -> None:
             inv_prop=inv_prop,
             train_propensity_weighting=not args.no_train_propensity_weighting,
         )
-        metrics = evaluate_metrics(
-            X=X_all,
-            book_true_labels=y_all,
-            W=W,
-            k=args.k,
-        )
+        metrics = evaluate_metrics(X=X_all, book_true_labels=y_all, W=W, k=args.k)
         return float(metrics["oracle_macro_f1_per_sample"])
 
     bounds = [
@@ -1003,33 +1081,44 @@ def main() -> None:
             f"oracle_f1={float(y):.6f}"
         )
 
-    X_trials, y_trials, best_score, best_x = run_gp_bo(
-        eval_fn=eval_candidate,
-        bounds=bounds,
-        n_init=args.bo_init,
-        n_iter=args.bo_iters,
-        n_candidates=args.bo_candidates,
-        seed=args.seed,
-        trial_callback=on_bo_trial,
-    )
-    sw.stamp("Completed GP-BO search")
+    defaults = {
+        "elm": (1.235e-05, 0.2987, 3.2278),
+        "embeddings": (3.12547e-05, 1.29659, 4.72619),
+    }
 
-    best_lambda = 10.0 ** float(best_x[0])
-    best_a = float(best_x[1])
-    best_b = float(best_x[2])
-    print("\nBest BO params:")
-    print(f"  lambda={best_lambda:.6g} (log10={best_x[0]:.4f})")
-    print(f"  propensity_a={best_a:.6g}")
-    print(f"  propensity_b={best_b:.6g}")
-    print(f"  best_in_sample_oracle_macro_f1={best_score:.6f}")
+    skip_bo = args.bo_init == 0 and args.bo_iters == 0
+    if skip_bo:
+        best_lambda, best_a, best_b = defaults[mode]
+        print(f"\nBO skipped (bo-init=0 and bo-iters=0). Using {mode} default params:")
+        print(f"  lambda={best_lambda:.6g} (log10={math.log10(best_lambda):.4f})")
+        print(f"  propensity_a={best_a:.6g}")
+        print(f"  propensity_b={best_b:.6g}")
+        X_trials = np.zeros((0, 3), dtype=np.float64)
+        y_trials = np.zeros((0,), dtype=np.float64)
+        best_score = float(eval_candidate(np.array([math.log10(best_lambda), best_a, best_b], dtype=np.float64)))
+        print(f"  in_sample_oracle_macro_f1={best_score:.6f}")
+        sw.stamp("Skipped GP-BO search and evaluated default params")
+    else:
+        X_trials, y_trials, best_score, best_x = run_gp_bo(
+            eval_fn=eval_candidate,
+            bounds=bounds,
+            n_init=args.bo_init,
+            n_iter=args.bo_iters,
+            n_candidates=args.bo_candidates,
+            seed=run_seed,
+            trial_callback=on_bo_trial,
+        )
+        sw.stamp("Completed GP-BO search")
+        best_lambda = 10.0 ** float(best_x[0])
+        best_a = float(best_x[1])
+        best_b = float(best_x[2])
+        print("\nBest BO params:")
+        print(f"  lambda={best_lambda:.6g} (log10={best_x[0]:.4f})")
+        print(f"  propensity_a={best_a:.6g}")
+        print(f"  propensity_b={best_b:.6g}")
+        print(f"  best_in_sample_oracle_macro_f1={best_score:.6f}")
 
-    # Fit best in-sample model and report in-sample metrics.
-    inv_prop_all = inverse_propensity(
-        label_freq=label_freq_all,
-        n_train=X_all.shape[0],
-        prop_a=best_a,
-        prop_b=best_b,
-    )
+    inv_prop_all = inverse_propensity(label_freq=label_freq_all, n_train=X_all.shape[0], prop_a=best_a, prop_b=best_b)
     W_all = fit_xml_ridge_from_B(
         XtX=XtX_all,
         B_base=B_base_all,
@@ -1039,13 +1128,7 @@ def main() -> None:
     )
     scores_all = X_all @ W_all
     cal_a_all, cal_b_all = fit_topk_sigmoid_calibrator(scores_all, y_all, k=args.k)
-    all_metrics = evaluate_metrics(
-        X=X_all,
-        book_true_labels=y_all,
-        W=W_all,
-        k=args.k,
-        cal_params=(cal_a_all, cal_b_all),
-    )
+    all_metrics = evaluate_metrics(X=X_all, book_true_labels=y_all, W=W_all, k=args.k, cal_params=(cal_a_all, cal_b_all))
     sw.stamp("Fit best model + calibrated GFM + computed in-sample metrics")
     print(f"  gfm_calibrator: sigmoid(a*s+b), a={cal_a_all:.6f}, b={cal_b_all:.6f}")
     print(
@@ -1053,7 +1136,7 @@ def main() -> None:
         f"GFM Macro F1 (per-sample, cutoff<= {args.k})={all_metrics['macro_f1_per_sample_gfm']:.6f}, "
         f"Oracle F1={all_metrics['oracle_macro_f1_per_sample']:.6f}"
     )
-    rng = np.random.default_rng(args.seed + 7)
+    rng = np.random.default_rng(run_seed + 7)
     sample_n = min(args.sample_size, X_all.shape[0])
     sampled_rows = rng.choice(X_all.shape[0], size=sample_n, replace=False)
 
@@ -1067,10 +1150,6 @@ def main() -> None:
         rank_full = np.argsort(-scores_all[row]).tolist()
         show_n = max(args.k, best_t)
         show_n = max(1, min(len(rank_full), show_n))
-        shown_idx = rank_full[:show_n]
-        shown_labels = [lbl.label_names[j] for j in shown_idx]
-
-        # Approximate GFM cutoff using calibrated probabilities on top-k scores.
         topk_idx = rank_full[: args.k]
         topk_scores = scores_all[row, topk_idx]
         topk_probs = 1.0 / (1.0 + np.exp(-np.clip(cal_a_all * topk_scores + cal_b_all, -40.0, 40.0)))
@@ -1103,7 +1182,6 @@ def main() -> None:
         )
         print("  True Labels:", ", ".join(true_labels) if true_labels else "<none>")
 
-    # Diagnostic: sample books with no retained ground-truth tags and show non-empty GFM recommendations.
     no_tag_rows = np.asarray([i for i, tags in enumerate(y_all) if len(tags) == 0], dtype=np.int64)
     if no_tag_rows.size > 0:
         diag_n = min(100, no_tag_rows.size)
@@ -1131,18 +1209,302 @@ def main() -> None:
             print("  None of the sampled no-tag books received non-empty GFM recommendations.")
     sw.stamp("Rendered sample predictions and no-tag diagnostic")
 
-    # Print compact BO trail summary for reproducibility.
-    print("\nBO trail (in_sample_oracle_macro_f1):")
-    for i in range(len(y_trials)):
-        lam_i = 10.0 ** float(X_trials[i, 0])
-        a_i = float(X_trials[i, 1])
-        b_i = float(X_trials[i, 2])
-        print(
-            f"  iter={i+1:02d} "
-            f"lambda={lam_i:.4g} a={a_i:.4f} b={b_i:.4f} "
-            f"in_sample_oracle_macro_f1={y_trials[i]:.6f}"
+    sw.stamp("Completed run")
+
+    return ModeRunResult(
+        mode=mode,
+        book_ids=book_ids,
+        label_names=lbl.label_names,
+        scores=scores_all,
+        book_true_labels=lbl.book_true_labels,
+        titles=titles,
+        oracle_f1=float(all_metrics["oracle_macro_f1_per_sample"]),
+        gfm_f1=float(all_metrics["macro_f1_per_sample_gfm"]),
+        top_pairs=[],
+    )
+
+
+def run_meta_mode(args: argparse.Namespace, emb_res: ModeRunResult, elm_res: ModeRunResult, seed_offset: int = 2000) -> ModeRunResult:
+    sw = Stopwatch()
+    run_seed = args.seed + seed_offset
+    np.random.seed(run_seed)
+    random.seed(run_seed)
+    print("\n=== Running mode: meta ===")
+
+    emb_book_to_row = {int(bid): i for i, bid in enumerate(emb_res.book_ids.tolist())}
+    elm_book_to_row = {int(bid): i for i, bid in enumerate(elm_res.book_ids.tolist())}
+    common_books = sorted(set(emb_book_to_row.keys()) & set(elm_book_to_row.keys()))
+    if not common_books:
+        raise RuntimeError("No common books between embeddings and elm experiments.")
+
+    emb_label_to_col = {name: i for i, name in enumerate(emb_res.label_names)}
+    elm_label_to_col = {name: i for i, name in enumerate(elm_res.label_names)}
+    common_label_names = sorted(set(emb_label_to_col.keys()) & set(elm_label_to_col.keys()))
+    if not common_label_names:
+        raise RuntimeError("No common labels between embeddings and elm experiments.")
+
+    emb_cols = np.asarray([emb_label_to_col[name] for name in common_label_names], dtype=np.int64)
+    elm_cols = np.asarray([elm_label_to_col[name] for name in common_label_names], dtype=np.int64)
+    common_label_to_col = {name: i for i, name in enumerate(common_label_names)}
+
+    n = len(common_books)
+    l = len(common_label_names)
+    X_meta = np.empty((n, 2 * l), dtype=np.float64)
+    y_meta: List[List[int]] = []
+    titles: Dict[int, str] = {}
+    for i, bid in enumerate(common_books):
+        r_emb = emb_book_to_row[bid]
+        r_elm = elm_book_to_row[bid]
+        X_meta[i, :l] = emb_res.scores[r_emb, emb_cols]
+        X_meta[i, l:] = elm_res.scores[r_elm, elm_cols]
+
+        y_names = [emb_res.label_names[j] for j in emb_res.book_true_labels[r_emb]]
+        y_idx = sorted(
+            {
+                common_label_to_col[name]
+                for name in y_names
+                if name in common_label_to_col
+            }
         )
-    sw.stamp("Printed BO trail and completed run")
+        y_meta.append(y_idx)
+        titles[bid] = emb_res.titles.get(bid, elm_res.titles.get(bid, "<unknown>"))
+    sw.stamp("Aligned base-model scores and built meta features")
+
+    lbl = build_label_data_from_book_true(label_names=common_label_names, book_true_labels=y_meta)
+    X_all = X_meta
+    y_all = lbl.book_true_labels
+    book_ids = np.asarray(common_books, dtype=np.int64)
+
+    print(f"Feature mode: meta")
+    print(f"Loaded books: {n}")
+    print(f"Feature dims: {X_all.shape[1]} (emb_scores={l} + elm_scores={l})")
+    print(f"Labels kept (common): {l}")
+
+    XtX_all = X_all.T @ X_all
+    B_base_all = build_B_base(X_all, lbl.label_pos_rows)
+    label_freq_all = lbl.label_freq
+    sw.stamp("Prepared in-sample matrices (XtX, X^T Y base)")
+
+    def eval_candidate(x: np.ndarray) -> float:
+        lam = 10.0 ** float(x[0])
+        prop_a = float(x[1])
+        prop_b = float(x[2])
+        inv_prop = inverse_propensity(
+            label_freq=label_freq_all,
+            n_train=X_all.shape[0],
+            prop_a=prop_a,
+            prop_b=prop_b,
+        )
+        W = fit_xml_ridge_from_B(
+            XtX=XtX_all,
+            B_base=B_base_all,
+            lam=lam,
+            inv_prop=inv_prop,
+            train_propensity_weighting=not args.no_train_propensity_weighting,
+        )
+        metrics = evaluate_metrics(X=X_all, book_true_labels=y_all, W=W, k=args.k)
+        return float(metrics["oracle_macro_f1_per_sample"])
+
+    bounds = [
+        (args.lambda_log10_min, args.lambda_log10_max),
+        (args.prop_a_min, args.prop_a_max),
+        (args.prop_b_min, args.prop_b_max),
+    ]
+
+    def on_bo_trial(iter_idx, total_iters, phase, x, y, elapsed_sec) -> None:
+        lam = 10.0 ** float(x[0])
+        a = float(x[1])
+        b = float(x[2])
+        print(
+            f"[timing] BO {iter_idx:03d}/{total_iters:03d} "
+            f"phase={phase} took {elapsed_sec:7.2f}s "
+            f"lambda={lam:.4g} a={a:.4f} b={b:.4f} "
+            f"oracle_f1={float(y):.6f}"
+        )
+
+    skip_bo = args.meta_bo_init == 0 and args.meta_bo_iters == 0
+    if skip_bo:
+        best_lambda = 4.81382e-05
+        best_a = 1.43208
+        best_b = 4.85651
+        print("\nBO skipped (meta-bo-init=0 and meta-bo-iters=0). Using meta default params:")
+        print(f"  lambda={best_lambda:.6g} (log10={math.log10(best_lambda):.4f})")
+        print(f"  propensity_a={best_a:.6g}")
+        print(f"  propensity_b={best_b:.6g}")
+        X_trials = np.zeros((0, 3), dtype=np.float64)
+        y_trials = np.zeros((0,), dtype=np.float64)
+        best_score = float(eval_candidate(np.array([math.log10(best_lambda), best_a, best_b], dtype=np.float64)))
+        print(f"  in_sample_oracle_macro_f1={best_score:.6f}")
+        sw.stamp("Skipped GP-BO search and evaluated default params")
+    else:
+        X_trials, y_trials, best_score, best_x = run_gp_bo(
+            eval_fn=eval_candidate,
+            bounds=bounds,
+            n_init=args.meta_bo_init,
+            n_iter=args.meta_bo_iters,
+            n_candidates=args.meta_bo_candidates,
+            seed=run_seed,
+            trial_callback=on_bo_trial,
+        )
+        sw.stamp("Completed GP-BO search")
+        best_lambda = 10.0 ** float(best_x[0])
+        best_a = float(best_x[1])
+        best_b = float(best_x[2])
+        print("\nBest BO params:")
+        print(f"  lambda={best_lambda:.6g} (log10={best_x[0]:.4f})")
+        print(f"  propensity_a={best_a:.6g}")
+        print(f"  propensity_b={best_b:.6g}")
+        print(f"  best_in_sample_oracle_macro_f1={best_score:.6f}")
+
+    inv_prop_all = inverse_propensity(label_freq=label_freq_all, n_train=X_all.shape[0], prop_a=best_a, prop_b=best_b)
+    W_all = fit_xml_ridge_from_B(
+        XtX=XtX_all,
+        B_base=B_base_all,
+        lam=best_lambda,
+        inv_prop=inv_prop_all,
+        train_propensity_weighting=not args.no_train_propensity_weighting,
+    )
+    scores_all = X_all @ W_all
+    cal_a_all, cal_b_all = fit_topk_sigmoid_calibrator(scores_all, y_all, k=args.k)
+    all_metrics = evaluate_metrics(X=X_all, book_true_labels=y_all, W=W_all, k=args.k, cal_params=(cal_a_all, cal_b_all))
+    sw.stamp("Fit best model + calibrated GFM + computed in-sample metrics")
+    print(f"  gfm_calibrator: sigmoid(a*s+b), a={cal_a_all:.6f}, b={cal_b_all:.6f}")
+    print(
+        "In-sample metrics: "
+        f"GFM Macro F1 (per-sample, cutoff<= {args.k})={all_metrics['macro_f1_per_sample_gfm']:.6f}, "
+        f"Oracle F1={all_metrics['oracle_macro_f1_per_sample']:.6f}"
+    )
+
+    rng = np.random.default_rng(run_seed + 7)
+    sample_n = min(args.sample_size, X_all.shape[0])
+    sampled_rows = rng.choice(X_all.shape[0], size=sample_n, replace=False)
+    print(f"\nRandom sample predictions (top {args.k}):")
+    for row in sampled_rows.tolist():
+        book_id = int(book_ids[row])
+        title = titles.get(book_id, "<unknown>")
+        true_lbl_idx = lbl.book_true_labels[row]
+        best_t, best_f1 = oracle_cutoff_for_sample(scores_all[row], true_lbl_idx)
+        rank_full = np.argsort(-scores_all[row]).tolist()
+        show_n = max(1, min(len(rank_full), max(args.k, best_t)))
+        topk_idx = rank_full[: args.k]
+        topk_scores = scores_all[row, topk_idx]
+        topk_probs = 1.0 / (1.0 + np.exp(-np.clip(cal_a_all * topk_scores + cal_b_all, -40.0, 40.0)))
+        gfm_t, gfm_obj = gfm_cutoff_from_topk_probs(topk_probs)
+        show_n = max(1, min(len(rank_full), max(show_n, gfm_t)))
+        shown_idx = rank_full[:show_n]
+        shown_labels = [lbl.label_names[j] for j in shown_idx]
+        marker_map: Dict[int, List[str]] = {}
+        marker_map.setdefault(max(0, min(show_n, best_t)), []).append("oracle")
+        marker_map.setdefault(max(0, min(show_n, gfm_t)), []).append("gfm")
+        parts: List[str] = []
+        for pos in range(show_n + 1):
+            if pos in marker_map:
+                parts.append(f"|{'|'.join(marker_map[pos])}|")
+            if pos < show_n:
+                parts.append(shown_labels[pos])
+        true_labels = [lbl.label_names[j] for j in true_lbl_idx][: args.k]
+        print(f"\nBook {book_id}: {title}")
+        print(
+            f"  Pred Ranked (shown={show_n}, oracle_t={best_t}, oracle_f1={best_f1:.4f}, "
+            f"gfm_t={gfm_t}, gfm_obj={gfm_obj:.4f}):",
+            ", ".join(parts),
+        )
+        print("  True Labels:", ", ".join(true_labels) if true_labels else "<none>")
+
+    no_tag_rows = np.asarray([i for i, tags in enumerate(y_all) if len(tags) == 0], dtype=np.int64)
+    if no_tag_rows.size > 0:
+        diag_n = min(100, no_tag_rows.size)
+        diag_rows = rng.choice(no_tag_rows, size=diag_n, replace=False)
+        print(f"\nNo-tag diagnostic (sampled {diag_n} books with empty ground truth; showing non-empty GFM recommendations):")
+        shown = 0
+        for row in diag_rows.tolist():
+            rank_full = np.argsort(-scores_all[row]).tolist()
+            topk_idx = rank_full[: args.k]
+            topk_scores = scores_all[row, topk_idx]
+            topk_probs = 1.0 / (1.0 + np.exp(-np.clip(cal_a_all * topk_scores + cal_b_all, -40.0, 40.0)))
+            gfm_t, gfm_obj = gfm_cutoff_from_topk_probs(topk_probs)
+            if gfm_t <= 0:
+                continue
+            rec_idx = topk_idx[:gfm_t]
+            rec_labels = [lbl.label_names[j] for j in rec_idx]
+            book_id = int(book_ids[row])
+            title = titles.get(book_id, "<unknown>")
+            print(f"  Book {book_id} (gfm_t={gfm_t}, gfm_obj={gfm_obj:.4f}): {title} -> {', '.join(rec_labels)}")
+            shown += 1
+        if shown == 0:
+            print("  None of the sampled no-tag books received non-empty GFM recommendations.")
+    sw.stamp("Rendered sample predictions and no-tag diagnostic")
+
+    top_pairs = top_book_tag_pairs_by_gfm_obj(
+        book_ids=book_ids,
+        titles=titles,
+        scores=scores_all,
+        label_names=lbl.label_names,
+        cal_a=cal_a_all,
+        cal_b=cal_b_all,
+        k=args.k,
+        limit=50,
+    )
+    sw.stamp("Completed run")
+
+    return ModeRunResult(
+        mode="meta",
+        book_ids=book_ids,
+        label_names=lbl.label_names,
+        scores=scores_all,
+        book_true_labels=lbl.book_true_labels,
+        titles=titles,
+        oracle_f1=float(all_metrics["oracle_macro_f1_per_sample"]),
+        gfm_f1=float(all_metrics["macro_f1_per_sample_gfm"]),
+        top_pairs=top_pairs,
+    )
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="XML-ridge + ELM-ridge for XMLC on Calibre data.")
+    parser.add_argument("--library-dir", required=True, help="Calibre library directory containing calibregpt.db + metadata.db")
+    parser.add_argument("--model", default="text-embedding-ada-002", help="Embedding model name in chunk_embeddings")
+    parser.add_argument("--embedding-dim", type=int, default=1536, help="Expected embedding dimension")
+    parser.add_argument("--vocab-min-df", type=int, default=5, help="Minimum document frequency for title/comment unigram vocabulary in ELM mode")
+    parser.add_argument("--vocab-max-features", type=int, default=50000, help="Maximum unigram vocabulary size in ELM mode")
+    parser.add_argument("--bow-min-token-len", type=int, default=2, help="Minimum token length for title/comment tokenization in ELM mode")
+    parser.add_argument("--elm-hidden-nodes", type=int, default=8192, help="Hidden units for random projection layer in ELM mode")
+    parser.add_argument("--elm-seed", type=int, default=None, help="Random seed for ELM hidden layer")
+    parser.add_argument("--min-label-freq", type=int, default=5, help="Drop labels with fewer positives")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--k", type=int, default=32, help="Candidate top-k list; GFM selects cutoff <= k from this list")
+    parser.add_argument("--sample-size", type=int, default=10, help="How many random books to print")
+    parser.add_argument("--no-train-propensity-weighting", action="store_true", help="Disable propensity weighting in training")
+    parser.add_argument("--bo-init", type=int, default=8, help="Initial random BO trials")
+    parser.add_argument("--bo-iters", type=int, default=20, help="Total BO trials")
+    parser.add_argument("--bo-candidates", type=int, default=1500, help="Candidate points per BO iteration")
+    parser.add_argument("--meta-bo-init", type=int, default=8, help="Initial random BO trials for final meta ridge")
+    parser.add_argument("--meta-bo-iters", type=int, default=20, help="Total BO trials for final meta ridge")
+    parser.add_argument("--meta-bo-candidates", type=int, default=1500, help="Candidate points per BO iteration for final meta ridge")
+    parser.add_argument("--lambda-log10-min", type=float, default=-6.0)
+    parser.add_argument("--lambda-log10-max", type=float, default=2.0)
+    parser.add_argument("--prop-a-min", type=float, default=0.2)
+    parser.add_argument("--prop-a-max", type=float, default=1.5)
+    parser.add_argument("--prop-b-min", type=float, default=0.5)
+    parser.add_argument("--prop-b-max", type=float, default=5.0)
+    args = parser.parse_args()
+
+    library_dir = expand_path(args.library_dir)
+    emb_res = run_single_mode(args=args, library_dir=library_dir, mode="embeddings", seed_offset=0)
+    elm_res = run_single_mode(args=args, library_dir=library_dir, mode="elm", seed_offset=1000)
+    meta_res = run_meta_mode(args=args, emb_res=emb_res, elm_res=elm_res, seed_offset=2000)
+
+    print("\nSummary (Oracle F1 / GFM F1):")
+    for res in [emb_res, elm_res, meta_res]:
+        print(
+            f"  {res.mode:10s} oracle_f1={res.oracle_f1:.6f} "
+            f"gfm_f1={res.gfm_f1:.6f}"
+        )
+    print("\nTop 50 meta recommendations by gfm_obj (book-tag pairs):")
+    if not meta_res.top_pairs:
+        print("  <none>")
+    else:
+        for i, (gfm_obj, book_id, title, tag) in enumerate(meta_res.top_pairs, start=1):
+            print(f"  {i:02d}. gfm_obj={gfm_obj:.6f} book={book_id} tag={tag} title={title}")
 
 
 if __name__ == "__main__":
