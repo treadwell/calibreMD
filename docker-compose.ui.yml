@@ -1,0 +1,17 @@
+services:
+  calibre-reco-ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    container_name: calibre-reco-ui
+    ports:
+      - "8780:8780"
+    environment:
+      - LIBRARY_PARENT=/libraries
+      - RESULTS_ROOT=/data/results
+      - RECO_SCRIPT=/app/scripts/xml_ridge_pooled.py
+      - PYTHON_BIN=python3
+    volumes:
+      - /Users/kbrooks/Dropbox/Books:/libraries
+      - ./ui-data:/data
+    restart: unless-stopped

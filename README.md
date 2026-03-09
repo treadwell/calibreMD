@@ -76,6 +76,31 @@ print(book_recommendations$recommendations)  # Show recommended new tags with pr
 
 ## Development
 
+### Docker UI (Recommendations)
+
+This repo includes a Docker UI for continuously managing recommendations:
+
+1. Start the UI:
+   ```sh
+   docker compose -f docker-compose.ui.yml up -d --build
+   ```
+   Or use the helper:
+   ```sh
+   ./scripts/restart-ui.sh
+   ```
+2. Open:
+   [http://localhost:8780](http://localhost:8780)
+3. In the UI:
+   - Select a Calibre library
+   - Click **Refresh Recommendations**
+   - Use one of three query modes:
+     - Top recommended book-tag combinations
+     - Given a book, top recommended tags
+     - Given a tag, top recommended books
+   - Select multiple rows and click **Apply Selected Tags To Calibre**
+
+The UI writes temporary recommendation results to `./ui-data/results` (inside container: `/data/results`) and updates selected tags in the chosen library's `metadata.db`.
+
 ### Testing
 
 This package uses `testthat` for unit testing. To run the tests:
