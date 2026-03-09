@@ -359,6 +359,7 @@ class ModeRunResult:
     oracle_f1: float
     gfm_f1: float
     top_pairs: List[Tuple[float, int, str, str]]
+    all_pairs: List[Tuple[float, int, str, str]]
 
 
 def load_labels_from_metadata(
@@ -668,7 +669,7 @@ def top_book_tag_pairs_by_gfm_obj(
     cal_a: float,
     cal_b: float,
     k: int,
-    limit: int = 50,
+    limit: int | None = 50,
 ) -> List[Tuple[float, int, str, str]]:
     pairs: List[Tuple[float, int, str, str]] = []
     n = scores.shape[0]
@@ -690,6 +691,8 @@ def top_book_tag_pairs_by_gfm_obj(
                 continue
             pairs.append((float(gfm_obj), book_id, title, label_names[int(lbl_idx)]))
     pairs.sort(key=lambda x: (-x[0], x[1], x[3]))
+    if limit is None or limit <= 0:
+        return pairs
     return pairs[:limit]
 
 
@@ -1225,6 +1228,7 @@ def run_single_mode(args: argparse.Namespace, library_dir: str, mode: str, seed_
         oracle_f1=float(all_metrics["oracle_macro_f1_per_sample"]),
         gfm_f1=float(all_metrics["macro_f1_per_sample_gfm"]),
         top_pairs=[],
+        all_pairs=[],
     )
 
 
@@ -1439,7 +1443,7 @@ def run_meta_mode(args: argparse.Namespace, emb_res: ModeRunResult, elm_res: Mod
             print("  None of the sampled no-tag books received non-empty GFM recommendations.")
     sw.stamp("Rendered sample predictions and no-tag diagnostic")
 
-    top_pairs = top_book_tag_pairs_by_gfm_obj(
+    all_pairs = top_book_tag_pairs_by_gfm_obj(
         book_ids=book_ids,
         titles=titles,
         scores=scores_all,
@@ -1448,8 +1452,9 @@ def run_meta_mode(args: argparse.Namespace, emb_res: ModeRunResult, elm_res: Mod
         cal_a=cal_a_all,
         cal_b=cal_b_all,
         k=args.k,
-        limit=50,
+        limit=None,
     )
+    top_pairs = all_pairs[:50]
     sw.stamp("Completed run")
 
     return ModeRunResult(
@@ -1462,11 +1467,110 @@ def run_meta_mode(args: argparse.Namespace, emb_res: ModeRunResult, elm_res: Mod
         oracle_f1=float(all_metrics["oracle_macro_f1_per_sample"]),
         gfm_f1=float(all_metrics["macro_f1_per_sample_gfm"]),
         top_pairs=top_pairs,
+        all_pairs=all_pairs,
     )
+
+
+def save_recommendations_to_db(db_path: str, mode_res: ModeRunResult) -> None:
+    db_path = expand_path(db_path)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    con = sqlite3.connect(db_path)
+    cur = con.cursor()
+    cur.execute("DROP TABLE IF EXISTS recommendations")
+    cur.execute(
+        """
+        CREATE TABLE recommendations (
+          mode TEXT NOT NULL,
+          book_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          tag TEXT NOT NULL,
+          gfm_obj REAL NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX idx_rec_book ON recommendations(book_id, gfm_obj DESC)")
+    cur.execute("CREATE INDEX idx_rec_tag ON recommendations(tag, gfm_obj DESC)")
+    cur.executemany(
+        "INSERT INTO recommendations(mode, book_id, title, tag, gfm_obj) VALUES (?, ?, ?, ?, ?)",
+        [("meta", int(book_id), title, tag, float(gfm_obj)) for (gfm_obj, book_id, title, tag) in mode_res.all_pairs],
+    )
+    con.commit()
+    con.close()
+
+
+def query_recommendations_db(db_path: str, book: str | None, tag: str | None, limit: int) -> None:
+    db_path = expand_path(db_path)
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"results db not found: {db_path}")
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+
+    if book:
+        if str(book).isdigit():
+            rows = cur.execute(
+                """
+                SELECT book_id, title, tag, gfm_obj
+                FROM recommendations
+                WHERE book_id = ?
+                ORDER BY gfm_obj DESC, tag ASC
+                LIMIT ?
+                """,
+                (int(book), int(limit)),
+            ).fetchall()
+        else:
+            rows = cur.execute(
+                """
+                SELECT book_id, title, tag, gfm_obj
+                FROM recommendations
+                WHERE LOWER(title) LIKE LOWER(?)
+                ORDER BY gfm_obj DESC, tag ASC
+                LIMIT ?
+                """,
+                (f"%{book}%", int(limit)),
+            ).fetchall()
+        print(f"\nQuery by book ({book})")
+        if not rows:
+            print("  <none>")
+        for r in rows:
+            print(f"  gfm_obj={float(r['gfm_obj']):.6f} book={int(r['book_id'])} tag={r['tag']} title={r['title']}")
+
+    if tag:
+        rows = cur.execute(
+            """
+            SELECT book_id, title, tag, gfm_obj
+            FROM recommendations
+            WHERE LOWER(tag) LIKE LOWER(?)
+            ORDER BY gfm_obj DESC, book_id ASC
+            LIMIT ?
+            """,
+            (f"%{tag}%", int(limit)),
+        ).fetchall()
+        print(f"\nQuery by tag ({tag})")
+        if not rows:
+            print("  <none>")
+        for r in rows:
+            print(f"  gfm_obj={float(r['gfm_obj']):.6f} tag={r['tag']} book={int(r['book_id'])} title={r['title']}")
+    if not book and not tag:
+        rows = cur.execute(
+            """
+            SELECT book_id, title, tag, gfm_obj
+            FROM recommendations
+            ORDER BY gfm_obj DESC, book_id ASC, tag ASC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        print(f"\nTop recommendations (limit={limit})")
+        if not rows:
+            print("  <none>")
+        for r in rows:
+            print(f"  gfm_obj={float(r['gfm_obj']):.6f} tag={r['tag']} book={int(r['book_id'])} title={r['title']}")
+    con.close()
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="XML-ridge + ELM-ridge for XMLC on Calibre data.")
-    parser.add_argument("--library-dir", required=True, help="Calibre library directory containing calibregpt.db + metadata.db")
+    parser.add_argument("--library-dir", required=False, help="Calibre library directory containing calibregpt.db + metadata.db")
     parser.add_argument("--model", default="text-embedding-ada-002", help="Embedding model name in chunk_embeddings")
     parser.add_argument("--embedding-dim", type=int, default=1536, help="Expected embedding dimension")
     parser.add_argument("--vocab-min-df", type=int, default=5, help="Minimum document frequency for title/comment unigram vocabulary in ELM mode")
@@ -1491,12 +1595,30 @@ def main() -> None:
     parser.add_argument("--prop-a-max", type=float, default=1.5)
     parser.add_argument("--prop-b-min", type=float, default=0.5)
     parser.add_argument("--prop-b-max", type=float, default=5.0)
+    parser.add_argument("--results-db", default="/tmp/xml_ridge_meta_recommendations.sqlite", help="SQLite path for temporary recommendation storage")
+    parser.add_argument("--query-only", action="store_true", help="Skip modeling and only query the existing results db")
+    parser.add_argument("--query-book", type=str, default=None, help="Query recommendations for a book id or title substring")
+    parser.add_argument("--query-tag", type=str, default=None, help="Query recommended books for a tag substring")
+    parser.add_argument("--query-limit", type=int, default=50, help="Max rows returned for a query")
     args = parser.parse_args()
+
+    if args.query_only:
+        query_recommendations_db(
+            db_path=args.results_db,
+            book=args.query_book,
+            tag=args.query_tag,
+            limit=args.query_limit,
+        )
+        return
+
+    if not args.library_dir:
+        raise ValueError("--library-dir is required unless --query-only is set")
 
     library_dir = expand_path(args.library_dir)
     emb_res = run_single_mode(args=args, library_dir=library_dir, mode="embeddings", seed_offset=0)
     elm_res = run_single_mode(args=args, library_dir=library_dir, mode="elm", seed_offset=1000)
     meta_res = run_meta_mode(args=args, emb_res=emb_res, elm_res=elm_res, seed_offset=2000)
+    save_recommendations_to_db(args.results_db, meta_res)
 
     print("\nSummary (Oracle F1 / GFM F1):")
     for res in [emb_res, elm_res, meta_res]:
@@ -1510,6 +1632,14 @@ def main() -> None:
     else:
         for i, (gfm_obj, book_id, title, tag) in enumerate(meta_res.top_pairs, start=1):
             print(f"  {i:02d}. gfm_obj={gfm_obj:.6f} book={book_id} tag={tag} title={title}")
+    print(f"\nSaved full recommendation set to: {expand_path(args.results_db)}")
+    if args.query_book or args.query_tag:
+        query_recommendations_db(
+            db_path=args.results_db,
+            book=args.query_book,
+            tag=args.query_tag,
+            limit=args.query_limit,
+        )
 
 
 if __name__ == "__main__":
