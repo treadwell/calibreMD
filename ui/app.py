@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 import os
 import sqlite3
 import subprocess
@@ -10,9 +11,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Form, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 
@@ -20,9 +20,14 @@ app = FastAPI(title="Calibre Recommendations UI")
 templates = Jinja2Templates(directory="/app/ui/templates")
 
 LIBRARY_PARENT = Path(os.getenv("LIBRARY_PARENT", "/libraries")).resolve()
+HOST_LIBRARY_PARENT = Path(os.getenv("HOST_LIBRARY_PARENT", "/Users/kbrooks/Dropbox/Books")).resolve()
 RESULTS_ROOT = Path(os.getenv("RESULTS_ROOT", "/data/results")).resolve()
 RECO_SCRIPT = Path(os.getenv("RECO_SCRIPT", "/app/scripts/xml_ridge_pooled.py")).resolve()
 PYTHON_BIN = os.getenv("PYTHON_BIN", "python3")
+UI_MIN_LABEL_FREQ = int(os.getenv("UI_MIN_LABEL_FREQ", "5"))
+UI_ELM_HIDDEN_NODES = int(os.getenv("UI_ELM_HIDDEN_NODES", "1024"))
+UI_SAMPLE_SIZE = int(os.getenv("UI_SAMPLE_SIZE", "1"))
+UI_TOP_K = int(os.getenv("UI_TOP_K", "32"))
 
 STATE: Dict[str, str] = {
     "library_dir": "",
@@ -39,6 +44,7 @@ class RecRow:
     title: str
     tag: str
     gfm_obj: float
+    open_href: str
 
 
 def _is_valid_library_dir(path: Path) -> bool:
@@ -81,11 +87,13 @@ def run_refresh(library_dir: str) -> None:
         "--results-db",
         str(db_path),
         "--sample-size",
-        "5",
+        str(UI_SAMPLE_SIZE),
         "--k",
-        "32",
+        str(UI_TOP_K),
         "--min-label-freq",
-        "1",
+        str(UI_MIN_LABEL_FREQ),
+        "--elm-hidden-nodes",
+        str(UI_ELM_HIDDEN_NODES),
     ]
 
     with LOCK:
@@ -111,6 +119,7 @@ def run_refresh(library_dir: str) -> None:
 
 def fetch_recommendations(
     library_dir: str,
+    model_mode: str,
     mode: str,
     query: Optional[str],
     limit: int,
@@ -123,62 +132,119 @@ def fetch_recommendations(
     con.row_factory = sqlite3.Row
     cur = con.cursor()
 
+    q = (query or "").strip()
+    db_mode = {"embeddings": "embeddings", "metadata": "elm", "combined": "meta"}.get(model_mode, "meta")
+
     if mode == "top":
         rows = cur.execute(
             """
             SELECT book_id, title, tag, gfm_obj
             FROM recommendations
+            WHERE mode = ?
             ORDER BY gfm_obj DESC, book_id ASC, tag ASC
             LIMIT ?
             """,
-            (limit,),
+            (db_mode, limit),
         ).fetchall()
     elif mode == "book":
-        if not query:
+        if not q:
             con.close()
             return []
-        if query.isdigit():
+        if q.isdigit():
             rows = cur.execute(
                 """
                 SELECT book_id, title, tag, gfm_obj
                 FROM recommendations
-                WHERE book_id = ?
+                WHERE mode = ? AND book_id = ?
                 ORDER BY gfm_obj DESC, tag ASC
                 LIMIT ?
                 """,
-                (int(query), limit),
+                (db_mode, int(q), limit),
             ).fetchall()
         else:
             rows = cur.execute(
                 """
                 SELECT book_id, title, tag, gfm_obj
                 FROM recommendations
-                WHERE LOWER(title) LIKE LOWER(?)
+                WHERE mode = ? AND LOWER(title) LIKE LOWER(?)
                 ORDER BY gfm_obj DESC, tag ASC
                 LIMIT ?
                 """,
-                (f"%{query}%", limit),
+                (db_mode, f"%{q}%", limit),
             ).fetchall()
     elif mode == "tag":
-        if not query:
+        if not q:
             con.close()
             return []
         rows = cur.execute(
             """
             SELECT book_id, title, tag, gfm_obj
             FROM recommendations
-            WHERE LOWER(tag) LIKE LOWER(?)
+            WHERE mode = ? AND LOWER(tag) = LOWER(?)
             ORDER BY gfm_obj DESC, book_id ASC
             LIMIT ?
             """,
-            (f"%{query}%", limit),
+            (db_mode, q, limit),
         ).fetchall()
     else:
         con.close()
         return []
 
     con.close()
-    return [RecRow(int(r["book_id"]), str(r["title"]), str(r["tag"]), float(r["gfm_obj"])) for r in rows]
+    recs = [RecRow(int(r["book_id"]), str(r["title"]), str(r["tag"]), float(r["gfm_obj"]), "") for r in rows]
+    open_links = resolve_open_links(library_dir=library_dir, book_ids=[r.book_id for r in recs])
+    for r in recs:
+        r.open_href = open_links.get(r.book_id, "")
+    return recs
+
+
+def resolve_book_targets(library_dir: str, book_ids: List[int]) -> Dict[int, Path]:
+    if not book_ids:
+        return {}
+    md = Path(library_dir) / "metadata.db"
+    if not md.exists():
+        return {}
+
+    placeholders = ",".join(["?"] * len(book_ids))
+    con = sqlite3.connect(str(md))
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    rows = cur.execute(
+        f"""
+        SELECT b.id AS book_id, b.path AS rel_path, d.name AS name, d.format AS fmt
+        FROM books b
+        LEFT JOIN data d ON d.book = b.id
+        WHERE b.id IN ({placeholders})
+        ORDER BY b.id, d.id
+        """,
+        tuple(int(x) for x in book_ids),
+    ).fetchall()
+    con.close()
+
+    out: Dict[int, Path] = {}
+    for r in rows:
+        bid = int(r["book_id"])
+        if bid in out:
+            continue
+        rel_path = str(r["rel_path"] or "")
+        if not rel_path:
+            continue
+        base = Path(library_dir) / rel_path
+        name = r["name"]
+        fmt = r["fmt"]
+        if name and fmt:
+            target = base / f"{name}.{str(fmt).lower()}"
+            if not target.exists():
+                target = base / f"{name}.{fmt}"
+        else:
+            target = base
+        out[bid] = target.resolve()
+    return out
+
+
+def resolve_open_links(library_dir: str, book_ids: List[int]) -> Dict[int, str]:
+    targets = resolve_book_targets(library_dir=library_dir, book_ids=book_ids)
+    return {bid: f"/book-file/{bid}" for bid in targets.keys()}
 
 
 def apply_recommendations(library_dir: str, selections: List[str]) -> Tuple[int, int]:
@@ -232,7 +298,7 @@ def apply_recommendations(library_dir: str, selections: List[str]) -> Tuple[int,
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, mode: str = "top", q: str = "", limit: int = 50):
+def index(request: Request, mode: str = "top", q: str = "", limit: int = 50, model_mode: str = "combined"):
     libraries = discover_libraries(LIBRARY_PARENT)
     with LOCK:
         library_dir = STATE.get("library_dir", "")
@@ -241,8 +307,18 @@ def index(request: Request, mode: str = "top", q: str = "", limit: int = 50):
         last_error = STATE.get("last_error", "")
 
     recs: List[RecRow] = []
+    query_note = ""
     if library_dir and mode in {"top", "book", "tag"}:
-        recs = fetch_recommendations(library_dir=library_dir, mode=mode, query=q, limit=max(1, min(limit, 500)))
+        recs = fetch_recommendations(
+            library_dir=library_dir,
+            model_mode=model_mode,
+            mode=mode,
+            query=q,
+            limit=max(1, min(limit, 500)),
+        )
+        q_trim = (q or "").strip()
+        if mode in {"book", "tag"} and q_trim and len(recs) == 0:
+            query_note = "None"
 
     return templates.TemplateResponse(
         "index.html",
@@ -254,9 +330,11 @@ def index(request: Request, mode: str = "top", q: str = "", limit: int = 50):
             "last_refresh": last_refresh,
             "last_error": last_error,
             "mode": mode,
+            "model_mode": model_mode,
             "q": q,
             "limit": limit,
             "recs": recs,
+            "query_note": query_note,
         },
     )
 
@@ -298,6 +376,7 @@ def refresh_recommendations():
 def apply_selected(
     selected: List[str] = Form(default=[]),
     mode: str = Form(default="top"),
+    model_mode: str = Form(default="combined"),
     q: str = Form(default=""),
     limit: int = Form(default=50),
 ):
@@ -307,7 +386,7 @@ def apply_selected(
     if not library_dir:
         with LOCK:
             STATE["last_error"] = "Select a library first."
-        return RedirectResponse(url=f"/?mode={mode}&q={q}&limit={limit}", status_code=303)
+        return RedirectResponse(url=f"/?model_mode={model_mode}&mode={mode}&q={q}&limit={limit}", status_code=303)
 
     try:
         added, skipped = apply_recommendations(library_dir=library_dir, selections=selected)
@@ -317,7 +396,7 @@ def apply_selected(
         with LOCK:
             STATE["last_error"] = f"Apply failed: {e}"
 
-    return RedirectResponse(url=f"/?mode={mode}&q={q}&limit={limit}", status_code=303)
+    return RedirectResponse(url=f"/?model_mode={model_mode}&mode={mode}&q={q}&limit={limit}", status_code=303)
 
 
 @app.get("/status")
@@ -329,3 +408,21 @@ def get_status():
             "last_refresh": STATE.get("last_refresh", ""),
             "last_error": STATE.get("last_error", ""),
         }
+
+
+@app.get("/book-file/{book_id}")
+def book_file(book_id: int, download: int = Query(default=0)):
+    with LOCK:
+        library_dir = STATE.get("library_dir", "")
+    if not library_dir:
+        return RedirectResponse(url="/", status_code=303)
+    targets = resolve_book_targets(library_dir=library_dir, book_ids=[int(book_id)])
+    path = targets.get(int(book_id))
+    if path is None or not path.exists() or not path.is_file():
+        with LOCK:
+            STATE["last_error"] = f"File not found for book_id={book_id}"
+        return RedirectResponse(url="/", status_code=303)
+    mime_type, _ = mimetypes.guess_type(str(path))
+    disposition = "attachment" if int(download or 0) == 1 else "inline"
+    headers = {"Content-Disposition": f'{disposition}; filename=\"{path.name}\"'}
+    return FileResponse(path=str(path), media_type=mime_type, filename=path.name, headers=headers)

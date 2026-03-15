@@ -8,9 +8,14 @@ services:
       - "8780:8780"
     environment:
       - LIBRARY_PARENT=/libraries
+      - HOST_LIBRARY_PARENT=/Users/kbrooks/Dropbox/Books
       - RESULTS_ROOT=/data/results
       - RECO_SCRIPT=/app/scripts/xml_ridge_pooled.py
       - PYTHON_BIN=python3
+      - UI_MIN_LABEL_FREQ=5
+      - UI_ELM_HIDDEN_NODES=1024
+      - UI_SAMPLE_SIZE=1
+      - UI_TOP_K=32
     volumes:
       - /Users/kbrooks/Dropbox/Books:/libraries
       - ./ui-data:/data

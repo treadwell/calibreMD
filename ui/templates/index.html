@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Calibre Recommendation UI</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #1e2430;
+      --muted: #5a6478;
+      --accent: #0e7490;
+      --accent-2: #155e75;
+      --line: #dde3ef;
+    }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(1200px 700px at 10% -20%, #d9edf7 0%, var(--bg) 60%);
+    }
+    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    h1 { margin: 0 0 12px 0; font-size: 22px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .grow { flex: 1; min-width: 260px; }
+    input, select, button {
+      border: 1px solid #c4cedf;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+    button {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+      cursor: pointer;
+    }
+    button.secondary { background: #4b5563; border-color: #4b5563; }
+    button:hover { background: var(--accent-2); }
+    .meta { color: var(--muted); font-size: 13px; }
+    .error { color: #7f1d1d; font-size: 13px; white-space: pre-wrap; }
+    .status-line { display: flex; align-items: center; gap: 8px; }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #b7d4de;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+    .query-spinner-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      visibility: hidden;
+    }
+    .query-spinner-wrap.on { visibility: visible; }
+    .spinner.on { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 7px; text-align: left; vertical-align: top; }
+    th { background: #f8fbff; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    @media (max-width: 800px) {
+      .hide-sm { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>Calibre Recommendation UI</h1>
+      <div class="meta status-line">
+        <span>Status: <span class="mono" id="statusText">{{ status }}</span></span>
+        <span id="refreshSpinner" class="spinner {% if status == 'refreshing' %}on{% endif %}"></span>
+        <span id="lastRefreshWrap">{% if last_refresh %}| Last refresh: <span class="mono" id="lastRefreshText">{{ last_refresh }}</span>{% endif %}</span>
+      </div>
+      <div class="error" id="errorText">{% if last_error %}{{ last_error }}{% endif %}</div>
+    </div>
+
+    <div class="panel">
+      <form method="post" action="/set-library" class="row">
+        <select name="library_dir" class="grow">
+          <option value="">Select a library...</option>
+          {% for lib in libraries %}
+            <option value="{{ lib }}" {% if lib == library_dir %}selected{% endif %}>{{ lib }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Set Library</button>
+      </form>
+      <div class="meta" style="margin-top:8px;">Current library: <span class="mono">{{ library_dir or "<none>" }}</span></div>
+      <form method="post" action="/refresh" style="margin-top:10px;">
+        <button id="refreshBtn" type="submit" {% if not library_dir or status == "refreshing" %}disabled{% endif %}>Refresh Recommendations</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <form id="queryForm" method="get" action="/" class="row">
+        <label>Model</label>
+        <select name="model_mode">
+          <option value="embeddings" {% if model_mode == "embeddings" %}selected{% endif %}>Embeddings</option>
+          <option value="metadata" {% if model_mode == "metadata" %}selected{% endif %}>Metadata</option>
+          <option value="combined" {% if model_mode == "combined" %}selected{% endif %}>Combined</option>
+        </select>
+        <label>Mode</label>
+        <select name="mode">
+          <option value="top" {% if mode == "top" %}selected{% endif %}>Top Book-Tag Combos</option>
+          <option value="book" {% if mode == "book" %}selected{% endif %}>Given Book -> Tags</option>
+          <option value="tag" {% if mode == "tag" %}selected{% endif %}>Given Tag -> Books</option>
+        </select>
+        <input type="text" name="q" value="{{ q }}" placeholder="book id/title or tag" class="grow" />
+        <input type="number" min="1" max="500" name="limit" value="{{ limit }}" style="width:90px;" />
+        <button id="queryBtn" type="submit">Query</button>
+        <span id="querySpinnerWrap" class="query-spinner-wrap">
+          <span class="spinner on" style="display:inline-block;"></span>
+          Running query...
+        </span>
+      </form>
+    </div>
+
+    <div class="panel">
+      {% if query_note %}
+      <div class="meta" style="margin-bottom:8px;">{{ query_note }}</div>
+      {% endif %}
+      <form method="post" action="/apply">
+        <input type="hidden" name="model_mode" value="{{ model_mode }}" />
+        <input type="hidden" name="mode" value="{{ mode }}" />
+        <input type="hidden" name="q" value="{{ q }}" />
+        <input type="hidden" name="limit" value="{{ limit }}" />
+        <div style="margin-bottom:10px;" class="row">
+          <button type="submit" {% if not recs %}disabled{% endif %}>Apply Selected Tags To Calibre</button>
+          <button type="button" class="secondary" onclick="toggleAll(true)">Select All</button>
+          <button type="button" class="secondary" onclick="toggleAll(false)">Clear</button>
+          <span class="meta">Rows: {{ recs|length }}</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:28px;"></th>
+              <th class="hide-sm">gfm_obj</th>
+              <th>book_id</th>
+              <th>title</th>
+              <th>tag</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% if recs %}
+            {% for r in recs %}
+              <tr>
+                <td><input type="checkbox" name="selected" value="{{ r.book_id }}|||{{ r.tag }}" /></td>
+                <td class="hide-sm mono">{{ "%.6f"|format(r.gfm_obj) }}</td>
+                <td class="mono">{{ r.book_id }}</td>
+                <td>
+                  {% if r.open_href %}
+                    <a href="{{ r.open_href }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a>
+                  {% else %}
+                    {{ r.title }}
+                  {% endif %}
+                </td>
+                <td>{{ r.tag }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="5" class="meta">None</td>
+            </tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </form>
+    </div>
+  </div>
+  <script>
+    function toggleAll(on) {
+      const boxes = document.querySelectorAll('input[type="checkbox"][name="selected"]');
+      boxes.forEach((b) => b.checked = on);
+    }
+
+    function showQuerySpinner() {
+      const wrap = document.getElementById('querySpinnerWrap');
+      const btn = document.getElementById('queryBtn');
+      if (wrap) wrap.classList.add('on');
+      if (btn) btn.disabled = true;
+    }
+
+    async function pollStatus() {
+      try {
+        const resp = await fetch('/status', { cache: 'no-store' });
+        if (!resp.ok) return;
+        const s = await resp.json();
+        const statusText = document.getElementById('statusText');
+        const spinner = document.getElementById('refreshSpinner');
+        const errorText = document.getElementById('errorText');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const lastWrap = document.getElementById('lastRefreshWrap');
+
+        if (statusText) statusText.textContent = s.status || 'idle';
+        if (spinner) spinner.classList.toggle('on', s.status === 'refreshing');
+        if (errorText) errorText.textContent = s.last_error || '';
+        if (refreshBtn) {
+          const libChosen = !!(s.library_dir && s.library_dir.length > 0);
+          refreshBtn.disabled = !libChosen || s.status === 'refreshing';
+        }
+        if (lastWrap) {
+          if (s.last_refresh) {
+            lastWrap.innerHTML = '| Last refresh: <span class=\"mono\" id=\"lastRefreshText\"></span>';
+            const t = document.getElementById('lastRefreshText');
+            if (t) t.textContent = s.last_refresh;
+          } else {
+            lastWrap.textContent = '';
+          }
+        }
+      } catch (_) {
+      }
+    }
+
+    setInterval(pollStatus, 1500);
+    pollStatus();
+
+    const qf = document.getElementById('queryForm');
+    if (qf) {
+      qf.addEventListener('submit', function () {
+        showQuerySpinner();
+      });
+    }
+  </script>
+</body>
+</html>

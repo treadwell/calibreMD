@@ -1216,6 +1216,18 @@ def run_single_mode(args: argparse.Namespace, library_dir: str, mode: str, seed_
             print("  None of the sampled no-tag books received non-empty GFM recommendations.")
     sw.stamp("Rendered sample predictions and no-tag diagnostic")
 
+    all_pairs = top_book_tag_pairs_by_gfm_obj(
+        book_ids=book_ids,
+        titles=titles,
+        scores=scores_all,
+        label_names=lbl.label_names,
+        book_true_labels=lbl.book_true_labels,
+        cal_a=cal_a_all,
+        cal_b=cal_b_all,
+        k=args.k,
+        limit=None,
+    )
+    top_pairs = all_pairs[:50]
     sw.stamp("Completed run")
 
     return ModeRunResult(
@@ -1227,8 +1239,8 @@ def run_single_mode(args: argparse.Namespace, library_dir: str, mode: str, seed_
         titles=titles,
         oracle_f1=float(all_metrics["oracle_macro_f1_per_sample"]),
         gfm_f1=float(all_metrics["macro_f1_per_sample_gfm"]),
-        top_pairs=[],
-        all_pairs=[],
+        top_pairs=top_pairs,
+        all_pairs=all_pairs,
     )
 
 
@@ -1471,7 +1483,7 @@ def run_meta_mode(args: argparse.Namespace, emb_res: ModeRunResult, elm_res: Mod
     )
 
 
-def save_recommendations_to_db(db_path: str, mode_res: ModeRunResult) -> None:
+def save_recommendations_to_db(db_path: str, mode_results: Sequence[ModeRunResult]) -> None:
     db_path = expand_path(db_path)
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     con = sqlite3.connect(db_path)
@@ -1490,9 +1502,14 @@ def save_recommendations_to_db(db_path: str, mode_res: ModeRunResult) -> None:
     )
     cur.execute("CREATE INDEX idx_rec_book ON recommendations(book_id, gfm_obj DESC)")
     cur.execute("CREATE INDEX idx_rec_tag ON recommendations(tag, gfm_obj DESC)")
+    cur.execute("CREATE INDEX idx_rec_mode ON recommendations(mode, gfm_obj DESC)")
+    rows = []
+    for mode_res in mode_results:
+        for (gfm_obj, book_id, title, tag) in mode_res.all_pairs:
+            rows.append((str(mode_res.mode), int(book_id), title, tag, float(gfm_obj)))
     cur.executemany(
         "INSERT INTO recommendations(mode, book_id, title, tag, gfm_obj) VALUES (?, ?, ?, ?, ?)",
-        [("meta", int(book_id), title, tag, float(gfm_obj)) for (gfm_obj, book_id, title, tag) in mode_res.all_pairs],
+        rows,
     )
     con.commit()
     con.close()
@@ -1618,7 +1635,7 @@ def main() -> None:
     emb_res = run_single_mode(args=args, library_dir=library_dir, mode="embeddings", seed_offset=0)
     elm_res = run_single_mode(args=args, library_dir=library_dir, mode="elm", seed_offset=1000)
     meta_res = run_meta_mode(args=args, emb_res=emb_res, elm_res=elm_res, seed_offset=2000)
-    save_recommendations_to_db(args.results_db, meta_res)
+    save_recommendations_to_db(args.results_db, [emb_res, elm_res, meta_res])
 
     print("\nSummary (Oracle F1 / GFM F1):")
     for res in [emb_res, elm_res, meta_res]:
